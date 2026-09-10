@@ -182,6 +182,7 @@ function newProjectState(){
       nazwa:"", sponsor:"", pm:"", cm:"", typProjektu:"", sposobProwadzenia:"", okresRealizacji:"",
       terminPrzygotowania:"", terminAktualizacji:"", dataPrzegladu:"", czestotliwosc:"",
       nick:"", filie:"", zwiazekZeStrategia:"", celProjektu:"", powodyProjektu:"", glownaKorzysc:"", budzetRazem:"",
+      wylaczenia:"", zrodloFinansowania:"",
     },
     surveyAnswers: emptySurveyAnswers(),
     pctHistory: [
@@ -194,6 +195,10 @@ function newProjectState(){
     milestones: [],
     teamMembers: [],
     risks: [],
+    deliverables: [],
+    budgetItems: [],
+    links: [],
+    maintenanceCosts: [],
     savedAt: null,
   };
 }
@@ -217,9 +222,14 @@ function sanitizeProjectState(data){
   const milestones = Array.isArray(data.milestones) ? data.milestones : base.milestones;
   const teamMembers = Array.isArray(data.teamMembers) ? data.teamMembers : base.teamMembers;
   const risks = Array.isArray(data.risks) ? data.risks : base.risks;
+  const deliverables = Array.isArray(data.deliverables) ? data.deliverables : base.deliverables;
+  const budgetItems = Array.isArray(data.budgetItems) ? data.budgetItems : base.budgetItems;
+  const links = Array.isArray(data.links) ? data.links : base.links;
+  const maintenanceCosts = Array.isArray(data.maintenanceCosts) ? data.maintenanceCosts : base.maintenanceCosts;
   return {
     ...base, ...data,
     project, surveyAnswers, pctHistory, groups, adkarByCategory, actions, checklist12, milestones, teamMembers, risks,
+    deliverables, budgetItems, links, maintenanceCosts,
   };
 }
 
@@ -240,6 +250,8 @@ const KARTA_FIELD_MATCHERS = [
   ["powodyProjektu", /^POWODY PODJĘCIA PROJEKTU/i],
   ["celProjektu", /^CEL PROJEKTU/i],
   ["budzetRazem", /^RAZEM/i],
+  ["wylaczenia", /^WYŁĄCZENIA/i],
+  ["zrodloFinansowania", /^ŹRÓDŁO FINANSOWANIA/i],
 ];
 
 // textContent samych <td> zlewa akapity/pozycje listy w jeden ciąg bez odstępu — dodajemy
@@ -350,6 +362,80 @@ function extractRisks(tables){
   return risks;
 }
 
+// "Sporadyczne zaangażowanie" ma dokładnie ten sam układ kolumn co "Skład zespołu"
+// (imię | dział | zadania/rola | termin/zaangażowanie), więc to też są ludzie do podpowiedzi
+// w polu "Odpowiedzialny" — dokładamy ich do tej samej listy zespołu.
+function extractSporadicTeam(tables){
+  const team = [];
+  const table = tables.find(t => /SPORADYCZNE ZAANGAŻOWANIE DO PROJEKTU/i.test(cellText(t.rows[0])));
+  if (!table) return team;
+  Array.from(table.rows).forEach(row => {
+    const cells = Array.from(row.cells).map(cellText);
+    if (cells.length < 4) return;
+    const [imie, dzial, rola, zaangazowanie] = cells;
+    if (!imie || /^imi. i nazwisko$/i.test(imie)) return;
+    team.push({imie, dzial, rola, zaangazowanie});
+  });
+  return team;
+}
+
+function extractDeliverables(tables){
+  const items = [];
+  // Sekcja "Wypracowane produkty" nie zaczyna własnej tabeli w Wordzie — jest dalszą częścią
+  // tej samej tabeli co "Główna korzyść biznesowa", więc szukamy tytułu w dowolnym wierszu.
+  const table = tables.find(t => Array.from(t.rows).some(r => /WYPRACOWANE w ramach projektu PRODUKTY/i.test(cellText(r))));
+  if (!table) return items;
+  Array.from(table.rows).forEach(row => {
+    const cells = Array.from(row.cells).map(cellText);
+    if (cells.length < 5) return;
+    const [lp, produkt, wartosc, termin, odbiorca] = cells;
+    if (!produkt || /^produkt$/i.test(produkt) || !/^\d+$/.test(lp)) return;
+    items.push({produkt, wartosc, termin, odbiorca});
+  });
+  return items;
+}
+
+function extractBudgetItems(tables){
+  const items = [];
+  const table = tables.find(t => /BUDŻET PROJEKTU/i.test(cellText(t.rows[0])) && !/SZACUNKOWE/i.test(cellText(t.rows[0])));
+  if (!table) return items;
+  Array.from(table.rows).forEach(row => {
+    const cells = Array.from(row.cells).map(cellText);
+    // tylko wiersze pozycji kosztowych: Lp (liczba) | Pozycja | Kwota — pomija RAZEM/Źródło/Założenia
+    if (cells.length !== 3 || !/^\d+$/.test(cells[0])) return;
+    items.push({pozycja: cells[1], kwota: cells[2]});
+  });
+  return items;
+}
+
+function extractLinks(tables){
+  const links = [];
+  const table = tables.find(t => /POWIĄZANIA.*PUNKTY STYKU PROJEKTU/i.test(cellText(t.rows[0])));
+  if (!table) return links;
+  Array.from(table.rows).forEach(row => {
+    const cells = Array.from(row.cells).map(cellText);
+    if (cells.length < 3) return;
+    const [projekt, zaleznosc, wspolpraca] = cells;
+    if (!projekt || /^projekt\/? ?portfel/i.test(projekt)) return;
+    links.push({projekt, zaleznosc, wspolpraca});
+  });
+  return links;
+}
+
+function extractMaintenanceCosts(tables){
+  const items = [];
+  const table = tables.find(t => /SZACUNKOWE KOSZTY UTRZYMANIA/i.test(cellText(t.rows[0])));
+  if (!table) return items;
+  Array.from(table.rows).forEach(row => {
+    const cells = Array.from(row.cells).map(cellText);
+    if (cells.length < 3) return;
+    const [rok, kategorie, kwota] = cells;
+    if (!rok || /^rok$/i.test(rok) || /^sum/i.test(rok)) return;
+    items.push({rok, kategorie, kwota: kwota||""});
+  });
+  return items;
+}
+
 // Karta projektu Grupy Merito ma stałą, numerowaną strukturę tabel. Parser dopasowuje pola po
 // treści etykiety (nie po sztywnej pozycji kolumny/wiersza), ale zakłada te same nagłówki sekcji
 // co w referencyjnym szablonie — inny układ karty może nic nie znaleźć (stąd podgląd przed
@@ -357,12 +443,17 @@ function extractRisks(tables){
 function parseKartaHtml(html){
   const doc = new DOMParser().parseFromString(html, "text/html");
   const tables = Array.from(doc.querySelectorAll("table"));
+  const team = [...extractTeam(tables), ...extractSporadicTeam(tables)];
   return {
     fields: extractFields(tables),
     groups: extractGroups(tables),
     milestones: extractMilestones(tables),
-    team: extractTeam(tables),
+    team,
     risks: extractRisks(tables),
+    deliverables: extractDeliverables(tables),
+    budgetItems: extractBudgetItems(tables),
+    links: extractLinks(tables),
+    maintenanceCosts: extractMaintenanceCosts(tables),
   };
 }
 
@@ -570,19 +661,22 @@ function App(){
     reader.readAsText(file);
   }
 
+  const EMPTY_KARTA_IMPORT = {fields:{}, groups:[], milestones:[], team:[], risks:[], deliverables:[], budgetItems:[], links:[], maintenanceCosts:[]};
+
   function handleKartaFile(file){
     const reader = new FileReader();
     reader.onload = () => {
       mammoth.convertToHtml({arrayBuffer: reader.result})
         .then(result => {
           const parsed = parseKartaHtml(result.value);
-          const found = Object.keys(parsed.fields).length + parsed.groups.length
-            + parsed.milestones.length + parsed.team.length + parsed.risks.length;
+          const found = Object.keys(parsed.fields).length + parsed.groups.length + parsed.milestones.length
+            + parsed.team.length + parsed.risks.length + parsed.deliverables.length + parsed.budgetItems.length
+            + parsed.links.length + parsed.maintenanceCosts.length;
           setKartaImport(found === 0
-            ? {fileName: file.name, fields:{}, groups:[], milestones:[], team:[], risks:[], failed:true}
+            ? {fileName: file.name, ...EMPTY_KARTA_IMPORT, failed:true}
             : {fileName: file.name, ...parsed, failed:false});
         })
-        .catch(() => setKartaImport({fileName: file.name, fields:{}, groups:[], milestones:[], team:[], risks:[], failed:true}));
+        .catch(() => setKartaImport({fileName: file.name, ...EMPTY_KARTA_IMPORT, failed:true}));
     };
     reader.readAsArrayBuffer(file);
   }
@@ -635,6 +729,62 @@ function App(){
     });
     setToast("Dodano ryzyka projektu z karty (referencyjnie, do wglądu w Danych projektu).");
   }
+  function applyKartaDeliverables(){
+    if (!kartaImport) return;
+    setState(s => {
+      const existing = new Set(s.deliverables.map(d => (d.produkt||"").trim().toLowerCase()));
+      const toAdd = kartaImport.deliverables
+        .filter(d => d.produkt && !existing.has(d.produkt.trim().toLowerCase()))
+        .map(d => ({id:cryptoId(), ...d}));
+      return {...s, deliverables: [...s.deliverables, ...toAdd]};
+    });
+    setToast("Dodano wypracowane produkty z karty (referencyjnie).");
+  }
+  function applyKartaBudgetItems(){
+    if (!kartaImport) return;
+    setState(s => {
+      const existing = new Set(s.budgetItems.map(b => (b.pozycja||"").trim().toLowerCase()));
+      const toAdd = kartaImport.budgetItems
+        .filter(b => b.pozycja && !existing.has(b.pozycja.trim().toLowerCase()))
+        .map(b => ({id:cryptoId(), ...b}));
+      return {...s, budgetItems: [...s.budgetItems, ...toAdd]};
+    });
+    setToast("Dodano pozycje budżetowe z karty (referencyjnie).");
+  }
+  function applyKartaLinks(){
+    if (!kartaImport) return;
+    setState(s => {
+      const existing = new Set(s.links.map(l => (l.projekt||"").trim().toLowerCase()));
+      const toAdd = kartaImport.links
+        .filter(l => l.projekt && !existing.has(l.projekt.trim().toLowerCase()))
+        .map(l => ({id:cryptoId(), ...l}));
+      return {...s, links: [...s.links, ...toAdd]};
+    });
+    setToast("Dodano powiązania z innymi projektami (referencyjnie).");
+  }
+  function applyKartaMaintenanceCosts(){
+    if (!kartaImport) return;
+    setState(s => {
+      const existing = new Set(s.maintenanceCosts.map(m => (m.rok||"").trim().toLowerCase()));
+      const toAdd = kartaImport.maintenanceCosts
+        .filter(m => m.rok && !existing.has(m.rok.trim().toLowerCase()))
+        .map(m => ({id:cryptoId(), ...m}));
+      return {...s, maintenanceCosts: [...s.maintenanceCosts, ...toAdd]};
+    });
+    setToast("Dodano koszty utrzymania po projekcie (referencyjnie).");
+  }
+  function applyKartaAll(){
+    applyKartaFields();
+    applyKartaGroups();
+    applyKartaMilestones();
+    applyKartaTeam();
+    applyKartaRisks();
+    applyKartaDeliverables();
+    applyKartaBudgetItems();
+    applyKartaLinks();
+    applyKartaMaintenanceCosts();
+    setToast("Zastosowano wszystko, co udało się wykryć w karcie projektu.");
+  }
   function dismissKartaImport(){ setKartaImport(null); }
 
   function exportExcel(){
@@ -663,6 +813,8 @@ function App(){
       ["Powody podjęcia projektu", state.project.powodyProjektu],
       ["Cel projektu", state.project.celProjektu],
       ["Główna korzyść biznesowa", state.project.glownaKorzysc],
+      ["Wyłączenia", state.project.wylaczenia],
+      ["Źródło finansowania", state.project.zrodloFinansowania],
       [],
       ["Liczba punktów w ankiecie skali zmiany", surveyTotal],
       ["Poziom zmiany", level.poziom + " — " + level.label],
@@ -679,6 +831,22 @@ function App(){
       ["KLUCZOWE RYZYKA Z KARTY PROJEKTU"],
       ["Ryzyko", "Sposób zarządzania"],
       ...state.risks.map(r => [r.ryzyko, r.zarzadzanie]),
+      [],
+      ["WYPRACOWANE PRODUKTY Z KARTY PROJEKTU"],
+      ["Produkt", "Wartość", "Termin", "Odbiorca"],
+      ...state.deliverables.map(d => [d.produkt, d.wartosc, d.termin, d.odbiorca]),
+      [],
+      ["POZYCJE BUDŻETOWE Z KARTY PROJEKTU"],
+      ["Pozycja", "Kwota"],
+      ...state.budgetItems.map(b => [b.pozycja, b.kwota]),
+      [],
+      ["POWIĄZANIA Z INNYMI PROJEKTAMI"],
+      ["Projekt", "Zależność", "Współpraca"],
+      ...state.links.map(l => [l.projekt, l.zaleznosc, l.wspolpraca]),
+      [],
+      ["KOSZTY UTRZYMANIA PO PROJEKCIE"],
+      ["Rok", "Kategorie kosztów", "Kwota"],
+      ...state.maintenanceCosts.map(m => [m.rok, m.kategorie, m.kwota]),
     ];
     const wsDane = XLSX.utils.aoa_to_sheet(daneRows);
     XLSX.utils.book_append_sheet(wb, wsDane, "Dane projektu");
@@ -843,8 +1011,12 @@ function App(){
           kartaInputRef={kartaInputRef} onKartaFile={handleKartaFile}
           kartaImport={kartaImport} onApplyKartaFields={applyKartaFields} onApplyKartaGroups={applyKartaGroups}
           onApplyKartaMilestones={applyKartaMilestones} onApplyKartaTeam={applyKartaTeam} onApplyKartaRisks={applyKartaRisks}
+          onApplyKartaDeliverables={applyKartaDeliverables} onApplyKartaBudgetItems={applyKartaBudgetItems}
+          onApplyKartaLinks={applyKartaLinks} onApplyKartaMaintenanceCosts={applyKartaMaintenanceCosts}
+          onApplyKartaAll={applyKartaAll}
           onDismissKarta={dismissKartaImport}
           milestones={state.milestones} teamMembers={state.teamMembers} risks={state.risks}
+          deliverables={state.deliverables} budgetItems={state.budgetItems} links={state.links} maintenanceCosts={state.maintenanceCosts}
         />}
         {tab==="ankieta" && <Ankieta answers={state.surveyAnswers} setAnswer={setSurveyAnswer} total={surveyTotal} level={level}/>}
         {tab==="checklisty" && level.poziom<3 && <Checklisty level={level} checklist={state.checklist12} toggle={toggleChecklist}/>}
@@ -906,18 +1078,33 @@ const KARTA_FIELD_LABELS = {
   typProjektu: "Typ projektu", filie: "Filie objęte projektem", zwiazekZeStrategia: "Związek ze strategią",
   okresRealizacji: "Okres realizacji", powodyProjektu: "Powody podjęcia projektu", celProjektu: "Cel projektu",
   glownaKorzysc: "Główna korzyść biznesowa", budzetRazem: "Budżet razem (brutto)",
+  wylaczenia: "Wyłączenia", zrodloFinansowania: "Źródło finansowania",
 };
 
+function KartaImportSection({title, count, previewPills, onApply, applyLabel}){
+  if (count === 0) return null;
+  return (
+    <React.Fragment>
+      <p className="hint" style={{margin:"0 0 6px"}}>{title} ({count}):</p>
+      {previewPills && <div className="pill-list" style={{marginBottom:8}}>{previewPills}</div>}
+      <button className="small" onClick={onApply} style={{marginBottom:14}}>{applyLabel}</button>
+    </React.Fragment>
+  );
+}
+
 function DaneProjektu({project, setField, level, surveyTotal, kartaInputRef, onKartaFile, kartaImport,
-  onApplyKartaFields, onApplyKartaGroups, onApplyKartaMilestones, onApplyKartaTeam, onApplyKartaRisks, onDismissKarta,
-  milestones, teamMembers, risks}){
+  onApplyKartaFields, onApplyKartaGroups, onApplyKartaMilestones, onApplyKartaTeam, onApplyKartaRisks,
+  onApplyKartaDeliverables, onApplyKartaBudgetItems, onApplyKartaLinks, onApplyKartaMaintenanceCosts, onApplyKartaAll,
+  onDismissKarta, milestones, teamMembers, risks, deliverables, budgetItems, links, maintenanceCosts}){
+  const hasReference = milestones.length>0 || teamMembers.length>0 || risks.length>0 || deliverables.length>0 || budgetItems.length>0 || links.length>0 || maintenanceCosts.length>0;
   return (
     <React.Fragment>
       <div className="card">
         <h2>Wczytaj kartę projektu</h2>
         <p className="hint">
-          Podaj kartę projektu (.docx, standardowy szablon Grupy Merito) — narzędzie spróbuje wyciągnąć dane ogólne, cel
-          i kontekst projektu, grupy interesariuszy, kamienie milowe z harmonogramu, skład zespołu i kluczowe ryzyka.
+          Podaj kartę projektu (.docx, standardowy szablon Grupy Merito) — narzędzie wyciąga z niej praktycznie wszystko:
+          dane ogólne, cel i kontekst, wyłączenia, budżet, grupy interesariuszy, harmonogram (kamienie milowe), skład
+          zespołu (w tym sporadyczne zaangażowanie), kluczowe ryzyka, produkty projektu i powiązania z innymi projektami.
           Nic nie zostanie nadpisane bez Twojej zgody — najpierw zobaczysz podgląd i sam wybierasz, co zastosować.
         </p>
         <input ref={kartaInputRef} type="file" accept=".docx" style={{display:"none"}}
@@ -935,6 +1122,7 @@ function DaneProjektu({project, setField, level, surveyTotal, kartaInputRef, onK
         {kartaImport && !kartaImport.failed && (
           <div className="action-row" style={{marginTop:14}}>
             <div className="top"><strong>Wykryto w pliku „{kartaImport.fileName}”</strong></div>
+            <button className="primary small" onClick={onApplyKartaAll} style={{marginBottom:16}}>Zastosuj wszystko naraz</button>
 
             {Object.keys(kartaImport.fields).length > 0 ? (
               <table style={{marginBottom:12}}>
@@ -946,44 +1134,35 @@ function DaneProjektu({project, setField, level, surveyTotal, kartaInputRef, onK
               </table>
             ) : <p className="hint">Nie wykryto pól danych projektu.</p>}
             {Object.keys(kartaImport.fields).length > 0 &&
-              <button className="primary small" onClick={onApplyKartaFields} style={{marginBottom:14}}>Zastosuj dane projektu</button>}
+              <button className="small" onClick={onApplyKartaFields} style={{marginBottom:14}}>Zastosuj dane projektu</button>}
 
-            {kartaImport.groups.length > 0 && (
-              <React.Fragment>
-                <p className="hint" style={{margin:"0 0 6px"}}>Grupy interesariuszy ({kartaImport.groups.length}):</p>
-                <div className="pill-list" style={{marginBottom:8}}>
-                  {kartaImport.groups.map((g,i) => <span key={i} className="pill">{g.nazwa}</span>)}
-                </div>
-                <button className="small" onClick={onApplyKartaGroups} style={{marginBottom:14}}>Dodaj {kartaImport.groups.length} grup interesariuszy</button>
-              </React.Fragment>
-            )}
+            <KartaImportSection title="Grupy interesariuszy" count={kartaImport.groups.length} onApply={onApplyKartaGroups}
+              applyLabel={"Dodaj " + kartaImport.groups.length + " grup interesariuszy"}
+              previewPills={kartaImport.groups.map((g,i) => <span key={i} className="pill">{g.nazwa}</span>)}/>
 
-            {kartaImport.milestones.length > 0 && (
-              <React.Fragment>
-                <p className="hint" style={{margin:"0 0 6px"}}>Kamienie milowe z harmonogramu ({kartaImport.milestones.length}):</p>
-                <div className="pill-list" style={{marginBottom:8}}>
-                  {kartaImport.milestones.map((m,i) => <span key={i} className="pill">{m.nazwa}{m.termin ? " — "+m.termin : ""}</span>)}
-                </div>
-                <button className="small" onClick={onApplyKartaMilestones} style={{marginBottom:14}}>Dodaj {kartaImport.milestones.length} kamieni milowych</button>
-              </React.Fragment>
-            )}
+            <KartaImportSection title="Kamienie milowe z harmonogramu" count={kartaImport.milestones.length} onApply={onApplyKartaMilestones}
+              applyLabel={"Dodaj " + kartaImport.milestones.length + " kamieni milowych"}
+              previewPills={kartaImport.milestones.map((m,i) => <span key={i} className="pill">{m.nazwa}{m.termin?" — "+m.termin:""}</span>)}/>
 
-            {kartaImport.team.length > 0 && (
-              <React.Fragment>
-                <p className="hint" style={{margin:"0 0 6px"}}>Skład zespołu ({kartaImport.team.length} osób):</p>
-                <div className="pill-list" style={{marginBottom:8}}>
-                  {kartaImport.team.map((t,i) => <span key={i} className="pill">{t.imie}</span>)}
-                </div>
-                <button className="small" onClick={onApplyKartaTeam} style={{marginBottom:14}}>Dodaj {kartaImport.team.length} osób zespołu</button>
-              </React.Fragment>
-            )}
+            <KartaImportSection title="Skład zespołu (w tym sporadyczne zaangażowanie)" count={kartaImport.team.length} onApply={onApplyKartaTeam}
+              applyLabel={"Dodaj " + kartaImport.team.length + " osób zespołu"}
+              previewPills={kartaImport.team.map((t,i) => <span key={i} className="pill">{t.imie}</span>)}/>
 
-            {kartaImport.risks.length > 0 && (
-              <React.Fragment>
-                <p className="hint" style={{margin:"0 0 6px"}}>Kluczowe ryzyka projektu ({kartaImport.risks.length}):</p>
-                <button className="small" onClick={onApplyKartaRisks} style={{marginBottom:14}}>Dodaj {kartaImport.risks.length} ryzyk (referencyjnie)</button>
-              </React.Fragment>
-            )}
+            <KartaImportSection title="Kluczowe ryzyka projektu" count={kartaImport.risks.length} onApply={onApplyKartaRisks}
+              applyLabel={"Dodaj " + kartaImport.risks.length + " ryzyk (referencyjnie)"}/>
+
+            <KartaImportSection title="Wypracowane produkty" count={kartaImport.deliverables.length} onApply={onApplyKartaDeliverables}
+              applyLabel={"Dodaj " + kartaImport.deliverables.length + " produktów (referencyjnie)"}
+              previewPills={kartaImport.deliverables.map((d,i) => <span key={i} className="pill">{d.produkt}</span>)}/>
+
+            <KartaImportSection title="Pozycje budżetowe" count={kartaImport.budgetItems.length} onApply={onApplyKartaBudgetItems}
+              applyLabel={"Dodaj " + kartaImport.budgetItems.length + " pozycji budżetowych (referencyjnie)"}/>
+
+            <KartaImportSection title="Powiązania z innymi projektami" count={kartaImport.links.length} onApply={onApplyKartaLinks}
+              applyLabel={"Dodaj " + kartaImport.links.length + " powiązań (referencyjnie)"}/>
+
+            <KartaImportSection title="Koszty utrzymania po projekcie" count={kartaImport.maintenanceCosts.length} onApply={onApplyKartaMaintenanceCosts}
+              applyLabel={"Dodaj " + kartaImport.maintenanceCosts.length + " pozycji (referencyjnie)"}/>
 
             <div><button className="small" onClick={onDismissKarta}>Odrzuć podgląd</button></div>
           </div>
@@ -1004,6 +1183,7 @@ function DaneProjektu({project, setField, level, surveyTotal, kartaInputRef, onK
           <Field label="Okres realizacji projektu"><input type="text" value={project.okresRealizacji} onChange={e=>setField("okresRealizacji", e.target.value)} placeholder="np. 02.02.2026 – 31.01.2027"/></Field>
           <Field label="Sposób prowadzenia prac"><input type="text" value={project.sposobProwadzenia} onChange={e=>setField("sposobProwadzenia", e.target.value)} placeholder="np. hybrydowy — program + pilotaże FlexiProject"/></Field>
           <Field label="Budżet razem (brutto)"><input type="text" value={project.budzetRazem} onChange={e=>setField("budzetRazem", e.target.value)}/></Field>
+          <Field label="Źródło finansowania"><input type="text" value={project.zrodloFinansowania} onChange={e=>setField("zrodloFinansowania", e.target.value)}/></Field>
           <Field label="Termin przygotowania PZZ"><input type="date" value={project.terminPrzygotowania} onChange={e=>setField("terminPrzygotowania", e.target.value)}/></Field>
           <Field label="Termin aktualizacji PZZ"><input type="date" value={project.terminAktualizacji} onChange={e=>setField("terminAktualizacji", e.target.value)}/></Field>
           <Field label="Data ostatniego przeglądu"><input type="date" value={project.dataPrzegladu} onChange={e=>setField("dataPrzegladu", e.target.value)}/></Field>
@@ -1024,12 +1204,13 @@ function DaneProjektu({project, setField, level, surveyTotal, kartaInputRef, onK
         <Field label="Powody podjęcia projektu"><textarea value={project.powodyProjektu} onChange={e=>setField("powodyProjektu", e.target.value)}/></Field>
         <Field label="Cel projektu"><textarea value={project.celProjektu} onChange={e=>setField("celProjektu", e.target.value)}/></Field>
         <Field label="Główna korzyść biznesowa"><textarea value={project.glownaKorzysc} onChange={e=>setField("glownaKorzysc", e.target.value)}/></Field>
+        <Field label="Wyłączenia (czego projekt NIE obejmuje)"><textarea value={project.wylaczenia} onChange={e=>setField("wylaczenia", e.target.value)}/></Field>
       </div>
 
-      {(milestones.length > 0 || teamMembers.length > 0 || risks.length > 0) && (
+      {hasReference && (
         <div className="card">
           <h2>Z karty projektu (referencyjnie)</h2>
-          <p className="hint">Kamienie milowe i osoby z zespołu podpowiadają się jako opcje w polach „Kamień milowy/etap” i „Odpowiedzialny” w Planie działań.</p>
+          <p className="hint">Kamienie milowe i osoby z zespołu podpowiadają się jako opcje w polach „Kamień milowy/etap” i „Odpowiedzialny” w Planie działań. Reszta to wgląd, bez wpływu na diagnozę czy plan.</p>
           {milestones.length > 0 && (
             <details open>
               <summary style={{cursor:"pointer", fontWeight:600, marginBottom:8}}>Kamienie milowe ({milestones.length})</summary>
@@ -1051,9 +1232,45 @@ function DaneProjektu({project, setField, level, surveyTotal, kartaInputRef, onK
           {risks.length > 0 && (
             <details>
               <summary style={{cursor:"pointer", fontWeight:600, marginBottom:8}}>Kluczowe ryzyka projektu ({risks.length})</summary>
-              <table>
+              <table style={{marginBottom:14}}>
                 <thead><tr><th>Ryzyko</th><th>Sposób zarządzania</th></tr></thead>
                 <tbody>{risks.map(r => <tr key={r.id}><td>{r.ryzyko}</td><td>{r.zarzadzanie}</td></tr>)}</tbody>
+              </table>
+            </details>
+          )}
+          {deliverables.length > 0 && (
+            <details>
+              <summary style={{cursor:"pointer", fontWeight:600, marginBottom:8}}>Wypracowane produkty ({deliverables.length})</summary>
+              <table style={{marginBottom:14}}>
+                <thead><tr><th>Produkt</th><th>Wartość</th><th>Termin</th><th>Odbiorca</th></tr></thead>
+                <tbody>{deliverables.map(d => <tr key={d.id}><td>{d.produkt}</td><td>{d.wartosc}</td><td>{d.termin}</td><td>{d.odbiorca}</td></tr>)}</tbody>
+              </table>
+            </details>
+          )}
+          {budgetItems.length > 0 && (
+            <details>
+              <summary style={{cursor:"pointer", fontWeight:600, marginBottom:8}}>Pozycje budżetowe ({budgetItems.length})</summary>
+              <table style={{marginBottom:14}}>
+                <thead><tr><th>Pozycja</th><th>Kwota</th></tr></thead>
+                <tbody>{budgetItems.map(b => <tr key={b.id}><td>{b.pozycja}</td><td>{b.kwota}</td></tr>)}</tbody>
+              </table>
+            </details>
+          )}
+          {links.length > 0 && (
+            <details>
+              <summary style={{cursor:"pointer", fontWeight:600, marginBottom:8}}>Powiązania z innymi projektami ({links.length})</summary>
+              <table style={{marginBottom:14}}>
+                <thead><tr><th>Projekt</th><th>Zależność</th><th>Współpraca</th></tr></thead>
+                <tbody>{links.map(l => <tr key={l.id}><td>{l.projekt}</td><td>{l.zaleznosc}</td><td>{l.wspolpraca}</td></tr>)}</tbody>
+              </table>
+            </details>
+          )}
+          {maintenanceCosts.length > 0 && (
+            <details>
+              <summary style={{cursor:"pointer", fontWeight:600, marginBottom:8}}>Koszty utrzymania po projekcie ({maintenanceCosts.length})</summary>
+              <table>
+                <thead><tr><th>Rok</th><th>Kategorie kosztów</th><th>Kwota</th></tr></thead>
+                <tbody>{maintenanceCosts.map(m => <tr key={m.id}><td>{m.rok}</td><td>{m.kategorie}</td><td>{m.kwota}</td></tr>)}</tbody>
               </table>
             </details>
           )}
