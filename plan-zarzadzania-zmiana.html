@@ -84,6 +84,7 @@
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
 <script src="https://unpkg.com/@babel/standalone@7/babel.min.js" crossorigin></script>
 <script src="https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js" crossorigin></script>
+<script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js" crossorigin></script>
 
 <script type="text/plain" id="app-source">
 const {useState, useMemo, useEffect, useRef} = React;
@@ -178,7 +179,7 @@ function emptyAdkarByCategory(){
 function newProjectState(){
   return {
     project: {
-      nazwa:"", sponsor:"", pm:"", cm:"", typProjektu:"", sposobProwadzenia:"",
+      nazwa:"", sponsor:"", pm:"", cm:"", typProjektu:"", sposobProwadzenia:"", okresRealizacji:"",
       terminPrzygotowania:"", terminAktualizacji:"", dataPrzegladu:"", czestotliwosc:"",
     },
     surveyAnswers: emptySurveyAnswers(),
@@ -213,6 +214,64 @@ function sanitizeProjectState(data){
     ...base, ...data,
     project, surveyAnswers, pctHistory, groups, adkarByCategory, actions, checklist12,
   };
+}
+
+/* ---------- Import karty projektu (.docx) ---------- */
+
+const KARTA_FIELD_MATCHERS = [
+  ["nazwa", /^NAZWA PROJEKTU/i],
+  ["sponsor", /^SPONSOR/i],
+  ["pm", /^MENAD.ER PROJEKTU/i],
+  ["typProjektu", /^TYP PROJEKTU/i],
+  ["okresRealizacji", /^OKRES REALIZACJI/i],
+];
+
+function cellText(node){
+  return (node.textContent || "").replace(/\s+/g, " ").trim();
+}
+
+// Karta projektu Grupy Merito ma stałą, numerowaną strukturę tabel (Lp | Etykieta | Wartość
+// dla danych ogólnych; Grupa | Kluczowe aspekty | Rola dla interesariuszy). Parser jest
+// odporny na to, w której kolumnie trafi na etykietę, ale zakłada tę samą sekcję "INTERESARIUSZE
+// PROJEKTU" co w referencyjnym szablonie — inny układ karty może nic nie znaleźć (stąd podgląd
+// przed zastosowaniem, a nie ciche nadpisanie danych).
+function parseKartaHtml(html){
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  const tables = Array.from(doc.querySelectorAll("table"));
+  const fields = {};
+
+  tables.forEach(table => {
+    Array.from(table.rows).forEach(row => {
+      const cells = Array.from(row.cells).map(cellText);
+      if (cells.length < 2) return;
+      const value = cells[cells.length - 1];
+      for (let i = 0; i < cells.length - 1; i++){
+        const label = cells[i].replace(/\*/g, "").trim();
+        if (!label) continue;
+        KARTA_FIELD_MATCHERS.forEach(([key, re]) => {
+          if (!fields[key] && re.test(label) && value && value !== label){
+            fields[key] = value;
+          }
+        });
+      }
+    });
+  });
+
+  const groups = [];
+  const stakeholderTable = tables.find(t => /INTERESARIUSZE PROJEKTU/i.test(cellText(t.rows[0])));
+  if (stakeholderTable){
+    Array.from(stakeholderTable.rows).forEach(row => {
+      const cells = Array.from(row.cells).map(cellText);
+      if (cells.length < 3) return;
+      const grupa = cells[0];
+      if (!grupa || /^grupa interesariuszy$/i.test(grupa) || /INTERESARIUSZE PROJEKTU/i.test(grupa)) return;
+      const aspekty = cells[1] || "";
+      const rola = cells[2] || "";
+      groups.push({nazwa: grupa, wplyw: [aspekty, rola].filter(Boolean).join(" — ")});
+    });
+  }
+
+  return {fields, groups};
 }
 
 /* ---------- localStorage ---------- */
@@ -290,7 +349,9 @@ function App(){
   const [storageOk] = useState(storageIsAvailable);
   const [showVersions, setShowVersions] = useState(false);
   const [toast, setToast] = useState(null);
+  const [kartaImport, setKartaImport] = useState(null);
   const fileInputRef = useRef(null);
+  const kartaInputRef = useRef(null);
   const versionsDialogRef = useRef(null);
 
   useEffect(()=>{
@@ -417,6 +478,41 @@ function App(){
     reader.readAsText(file);
   }
 
+  function handleKartaFile(file){
+    const reader = new FileReader();
+    reader.onload = () => {
+      mammoth.convertToHtml({arrayBuffer: reader.result})
+        .then(result => {
+          const parsed = parseKartaHtml(result.value);
+          const fieldCount = Object.keys(parsed.fields).length;
+          if (fieldCount === 0 && parsed.groups.length === 0){
+            setKartaImport({fileName: file.name, fields:{}, groups:[], failed:true});
+          } else {
+            setKartaImport({fileName: file.name, fields: parsed.fields, groups: parsed.groups, failed:false});
+          }
+        })
+        .catch(() => setKartaImport({fileName: file.name, fields:{}, groups:[], failed:true}));
+    };
+    reader.readAsArrayBuffer(file);
+  }
+  function applyKartaFields(){
+    if (!kartaImport) return;
+    setState(s => ({...s, project: {...s.project, ...kartaImport.fields}}));
+    setToast("Zastosowano dane z karty projektu.");
+  }
+  function applyKartaGroups(){
+    if (!kartaImport) return;
+    setState(s => {
+      const existingNames = new Set(s.groups.map(g => (g.nazwa||"").trim().toLowerCase()));
+      const toAdd = kartaImport.groups
+        .filter(g => g.nazwa && !existingNames.has(g.nazwa.trim().toLowerCase()))
+        .map(g => ({id:cryptoId(), nazwa:g.nazwa, wplyw:g.wplyw, categoryId: CATEGORIES[0].id}));
+      return {...s, groups: [...s.groups, ...toAdd]};
+    });
+    setToast("Dodano grupy interesariuszy z karty projektu — przypisz im właściwe kategorie w zakładce Diagnoza.");
+  }
+  function dismissKartaImport(){ setKartaImport(null); }
+
   function exportExcel(){
     const wb = XLSX.utils.book_new();
     const activeCategories = CATEGORIES.concat(state.usesOptionalCategory ? [OPTIONAL_CATEGORY] : []);
@@ -429,6 +525,7 @@ function App(){
       ["PM", state.project.pm],
       ["CM (jeśli powołany)", state.project.cm],
       ["Typ projektu", state.project.typProjektu],
+      ["Okres realizacji projektu", state.project.okresRealizacji],
       ["Sposób prowadzenia prac", state.project.sposobProwadzenia],
       ["Termin przygotowania PZZ", state.project.terminPrzygotowania],
       ["Termin aktualizacji PZZ", state.project.terminAktualizacji],
@@ -598,7 +695,10 @@ function App(){
             „Zapisz wersję” nie przetrwa zamknięcia karty. Używaj „Eksport JSON” / „Wczytaj JSON”, żeby nie stracić pracy.
           </div>
         )}
-        {tab==="dane" && <DaneProjektu project={state.project} setField={setProjectField} level={level} surveyTotal={surveyTotal}/>}
+        {tab==="dane" && <DaneProjektu project={state.project} setField={setProjectField} level={level} surveyTotal={surveyTotal}
+          kartaInputRef={kartaInputRef} onKartaFile={handleKartaFile}
+          kartaImport={kartaImport} onApplyKartaFields={applyKartaFields} onApplyKartaGroups={applyKartaGroups} onDismissKarta={dismissKartaImport}
+        />}
         {tab==="ankieta" && <Ankieta answers={state.surveyAnswers} setAnswer={setSurveyAnswer} total={surveyTotal} level={level}/>}
         {tab==="checklisty" && level.poziom<3 && <Checklisty level={level} checklist={state.checklist12} toggle={toggleChecklist}/>}
         {tab==="diagnoza" && <Diagnoza
@@ -653,30 +753,85 @@ function App(){
 
 /* ---------- Widoki ---------- */
 
-function DaneProjektu({project, setField, level, surveyTotal}){
+const KARTA_FIELD_LABELS = {
+  nazwa: "Nazwa projektu/programu", sponsor: "Sponsor", pm: "PM / Lider projektu",
+  typProjektu: "Typ projektu", okresRealizacji: "Okres realizacji",
+};
+
+function DaneProjektu({project, setField, level, surveyTotal, kartaInputRef, onKartaFile, kartaImport, onApplyKartaFields, onApplyKartaGroups, onDismissKarta}){
   return (
-    <div className="card">
-      <h2>Dane projektu</h2>
-      <p className="hint">Metryka projektu/programu — punkt wyjścia dla całego planu.</p>
-      <div className="grid cols2">
-        <Field label="Nazwa projektu/programu"><input type="text" value={project.nazwa} onChange={e=>setField("nazwa", e.target.value)}/></Field>
-        <Field label="Typ projektu"><input type="text" value={project.typProjektu} onChange={e=>setField("typProjektu", e.target.value)} placeholder="np. program, projekt, pilotaż"/></Field>
-        <Field label="Sponsor"><input type="text" value={project.sponsor} onChange={e=>setField("sponsor", e.target.value)}/></Field>
-        <Field label="PM / Lider projektu"><input type="text" value={project.pm} onChange={e=>setField("pm", e.target.value)}/></Field>
-        <Field label="CM (Change Manager, jeśli powołany)"><input type="text" value={project.cm} onChange={e=>setField("cm", e.target.value)}/></Field>
-        <Field label="Sposób prowadzenia prac"><input type="text" value={project.sposobProwadzenia} onChange={e=>setField("sposobProwadzenia", e.target.value)} placeholder="np. hybrydowy — program + pilotaże FlexiProject"/></Field>
-        <Field label="Termin przygotowania PZZ"><input type="date" value={project.terminPrzygotowania} onChange={e=>setField("terminPrzygotowania", e.target.value)}/></Field>
-        <Field label="Termin aktualizacji PZZ"><input type="date" value={project.terminAktualizacji} onChange={e=>setField("terminAktualizacji", e.target.value)}/></Field>
-        <Field label="Data ostatniego przeglądu"><input type="date" value={project.dataPrzegladu} onChange={e=>setField("dataPrzegladu", e.target.value)}/></Field>
-        <Field label="Częstotliwość przeglądu"><input type="text" value={project.czestotliwosc} onChange={e=>setField("czestotliwosc", e.target.value)} placeholder="np. co miesiąc"/></Field>
+    <React.Fragment>
+      <div className="card">
+        <h2>Wczytaj kartę projektu</h2>
+        <p className="hint">
+          Podaj kartę projektu (.docx, standardowy szablon Grupy Merito) — narzędzie spróbuje wyciągnąć nazwę, sponsora,
+          PM-a, typ i okres realizacji projektu oraz zaproponować listę grup interesariuszy z sekcji „Interesariusze projektu”.
+          Nic nie zostanie nadpisane bez Twojej zgody — najpierw zobaczysz podgląd.
+        </p>
+        <input ref={kartaInputRef} type="file" accept=".docx" style={{display:"none"}}
+          onChange={e => { if (e.target.files[0]) onKartaFile(e.target.files[0]); e.target.value=""; }} />
+        <button onClick={()=>kartaInputRef.current.click()}>Wybierz plik karty (.docx)</button>
+
+        {kartaImport && kartaImport.failed && (
+          <div className="banner warn" style={{marginTop:14}}>
+            Nie rozpoznano pól w pliku „{kartaImport.fileName}”. To może nie być karta projektu w standardowym szablonie
+            Grupy Merito (albo układ tabel się różni) — wpisz dane ręcznie poniżej.
+            <div style={{marginTop:8}}><button className="small" onClick={onDismissKarta}>Zamknij</button></div>
+          </div>
+        )}
+
+        {kartaImport && !kartaImport.failed && (
+          <div className="action-row" style={{marginTop:14}}>
+            <div className="top"><strong>Wykryto w pliku „{kartaImport.fileName}”</strong></div>
+            {Object.keys(kartaImport.fields).length > 0 ? (
+              <table style={{marginBottom:12}}>
+                <tbody>
+                  {Object.entries(kartaImport.fields).map(([k,v]) => (
+                    <tr key={k}><th style={{width:160}}>{KARTA_FIELD_LABELS[k]||k}</th><td>{v}</td></tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : <p className="hint">Nie wykryto pól danych projektu (nazwa/sponsor/PM/typ/okres).</p>}
+            {kartaImport.groups.length > 0 && (
+              <div className="pill-list" style={{marginBottom:12}}>
+                {kartaImport.groups.map((g,i) => <span key={i} className="pill">{g.nazwa}</span>)}
+              </div>
+            )}
+            <div style={{display:"flex", gap:8, flexWrap:"wrap"}}>
+              {Object.keys(kartaImport.fields).length > 0 &&
+                <button className="primary small" onClick={onApplyKartaFields}>Zastosuj dane projektu</button>}
+              {kartaImport.groups.length > 0 &&
+                <button className="small" onClick={onApplyKartaGroups}>Dodaj {kartaImport.groups.length} grup interesariuszy</button>}
+              <button className="small" onClick={onDismissKarta}>Odrzuć</button>
+            </div>
+          </div>
+        )}
       </div>
-      <h3>Wynik ankiety skali zmiany</h3>
-      <div className="flex-between">
-        <div>{surveyTotal} / 65 pkt</div>
-        <Badge tone={level.color}>Poziom {level.poziom} — {level.label} · {level.risk}</Badge>
+
+      <div className="card">
+        <h2>Dane projektu</h2>
+        <p className="hint">Metryka projektu/programu — punkt wyjścia dla całego planu.</p>
+        <div className="grid cols2">
+          <Field label="Nazwa projektu/programu"><input type="text" value={project.nazwa} onChange={e=>setField("nazwa", e.target.value)}/></Field>
+          <Field label="Typ projektu"><input type="text" value={project.typProjektu} onChange={e=>setField("typProjektu", e.target.value)} placeholder="np. program, projekt, pilotaż"/></Field>
+          <Field label="Sponsor"><input type="text" value={project.sponsor} onChange={e=>setField("sponsor", e.target.value)}/></Field>
+          <Field label="PM / Lider projektu"><input type="text" value={project.pm} onChange={e=>setField("pm", e.target.value)}/></Field>
+          <Field label="CM (Change Manager, jeśli powołany)"><input type="text" value={project.cm} onChange={e=>setField("cm", e.target.value)}/></Field>
+          <Field label="Okres realizacji projektu"><input type="text" value={project.okresRealizacji} onChange={e=>setField("okresRealizacji", e.target.value)} placeholder="np. 02.02.2026 – 31.01.2027"/></Field>
+          <Field label="Sposób prowadzenia prac"><input type="text" value={project.sposobProwadzenia} onChange={e=>setField("sposobProwadzenia", e.target.value)} placeholder="np. hybrydowy — program + pilotaże FlexiProject"/></Field>
+          <Field label="Termin przygotowania PZZ"><input type="date" value={project.terminPrzygotowania} onChange={e=>setField("terminPrzygotowania", e.target.value)}/></Field>
+          <Field label="Termin aktualizacji PZZ"><input type="date" value={project.terminAktualizacji} onChange={e=>setField("terminAktualizacji", e.target.value)}/></Field>
+          <Field label="Data ostatniego przeglądu"><input type="date" value={project.dataPrzegladu} onChange={e=>setField("dataPrzegladu", e.target.value)}/></Field>
+          <Field label="Częstotliwość przeglądu"><input type="text" value={project.czestotliwosc} onChange={e=>setField("czestotliwosc", e.target.value)} placeholder="np. co miesiąc"/></Field>
+        </div>
+        <h3>Wynik ankiety skali zmiany</h3>
+        <div className="flex-between">
+          <div>{surveyTotal} / 65 pkt</div>
+          <Badge tone={level.color}>Poziom {level.poziom} — {level.label} · {level.risk}</Badge>
+        </div>
+        <p className="hint">Uzupełnij ankietę w zakładce „Ankieta — skala zmiany”, żeby zobaczyć pełny wynik.</p>
       </div>
-      <p className="hint">Uzupełnij ankietę w zakładce „Ankieta — skala zmiany”, żeby zobaczyć pełny wynik.</p>
-    </div>
+    </React.Fragment>
   );
 }
 
