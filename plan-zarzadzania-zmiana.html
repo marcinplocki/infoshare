@@ -154,6 +154,8 @@ function pctTone(v){
   return "green";
 }
 
+const PCT_TONE_LABELS = {gray:"brak danych", red:"wymaga działania", orange:"wymaga uwagi", green:"mocny obszar"};
+
 /* ---------- Stan początkowy ---------- */
 
 function emptySurveyAnswers(){
@@ -191,7 +193,27 @@ function newProjectState(){
   };
 }
 
-function cryptoId(){ return Math.random().toString(36).slice(2,10) + Date.now().toString(36); }
+function cryptoId(){
+  try { if (window.crypto && typeof crypto.randomUUID === "function") return crypto.randomUUID(); } catch(e){}
+  return Math.random().toString(36).slice(2,10) + Date.now().toString(36);
+}
+
+function sanitizeProjectState(data){
+  const base = newProjectState();
+  if (!data || typeof data !== "object") return base;
+  const project = (data.project && typeof data.project === "object") ? {...base.project, ...data.project} : base.project;
+  const surveyAnswers = (data.surveyAnswers && typeof data.surveyAnswers === "object") ? {...base.surveyAnswers, ...data.surveyAnswers} : base.surveyAnswers;
+  const pctHistory = Array.isArray(data.pctHistory) && data.pctHistory.length ? data.pctHistory : base.pctHistory;
+  const groups = Array.isArray(data.groups) ? data.groups : base.groups;
+  const adkarByCategory = (data.adkarByCategory && typeof data.adkarByCategory === "object")
+    ? {...base.adkarByCategory, ...data.adkarByCategory} : base.adkarByCategory;
+  const actions = Array.isArray(data.actions) ? data.actions : base.actions;
+  const checklist12 = (data.checklist12 && typeof data.checklist12 === "object") ? data.checklist12 : base.checklist12;
+  return {
+    ...base, ...data,
+    project, surveyAnswers, pctHistory, groups, adkarByCategory, actions, checklist12,
+  };
+}
 
 /* ---------- localStorage ---------- */
 
@@ -259,6 +281,14 @@ function App(){
   const [showVersions, setShowVersions] = useState(false);
   const [toast, setToast] = useState(null);
   const fileInputRef = useRef(null);
+  const versionsDialogRef = useRef(null);
+
+  useEffect(()=>{
+    const d = versionsDialogRef.current;
+    if (!d) return;
+    if (showVersions && !d.open) d.showModal();
+    if (!showVersions && d.open) d.close();
+  }, [showVersions]);
 
   useEffect(()=>{
     if(!toast) return;
@@ -347,7 +377,7 @@ function App(){
     setToast("Wersja zapisana: " + entry.name);
   }
   function loadVersion(entry){
-    setState(entry.data);
+    setState(sanitizeProjectState(entry.data));
     setShowVersions(false);
     setToast("Wczytano wersję: " + entry.name);
   }
@@ -368,7 +398,7 @@ function App(){
     reader.onload = () => {
       try {
         const data = JSON.parse(reader.result);
-        setState(data);
+        setState(sanitizeProjectState(data));
         setToast("Wczytano plik: " + file.name);
       } catch(e){ alert("Nie udało się wczytać pliku JSON."); }
     };
@@ -377,6 +407,7 @@ function App(){
 
   function exportExcel(){
     const wb = XLSX.utils.book_new();
+    const activeCategories = CATEGORIES.concat(state.usesOptionalCategory ? [OPTIONAL_CATEGORY] : []);
 
     const daneRows = [
       ["PLAN ZARZĄDZANIA ZMIANĄ — DANE PROJEKTU"],
@@ -414,7 +445,7 @@ function App(){
       [],
       ["ADKAR PER KATEGORIA (1-5)"],
       ["Kategoria","Awareness","Desire","Knowledge","Ability","Reinforcement","Największa bariera","Wniosek"],
-      ...ALL_CATEGORIES.map(c => {
+      ...activeCategories.map(c => {
         const d = state.adkarByCategory[c.id] || {};
         const b = categoryBarrier(c.id);
         return [c.label, d.awareness, d.desire, d.knowledge, d.ability, d.reinforcement, b ? b.label : "", d.wniosek || ""];
@@ -520,6 +551,10 @@ function App(){
     {id:"przewodnik", label:"Przewodnik"},
   ].filter(Boolean);
 
+  useEffect(()=>{
+    if (!tabsDef.some(t => t.id === tab)) setTab("dane");
+  }, [tab, tabsDef]);
+
   return (
     <React.Fragment>
       <header className="app">
@@ -569,29 +604,27 @@ function App(){
         {tab==="przewodnik" && <Przewodnik/>}
       </main>
 
-      {showVersions && (
-        <dialog open onClose={()=>setShowVersions(false)}>
-          <div className="inner">
-            <div className="flex-between"><h2 style={{margin:0}}>Zapisane wersje</h2><button className="small" onClick={()=>setShowVersions(false)}>Zamknij</button></div>
-            <p className="hint">Wersje są zapisywane lokalnie w tej przeglądarce.</p>
-            <div className="versions-list">
-              {versions.length===0 && <div className="row muted">Brak zapisanych wersji.</div>}
-              {versions.map(v => (
-                <div className="row" key={v.id}>
-                  <div>
-                    <div>{v.name}</div>
-                    <div className="muted" style={{fontSize:11}}>{new Date(v.savedAt).toLocaleString("pl-PL")}</div>
-                  </div>
-                  <div style={{display:"flex", gap:6}}>
-                    <button className="small" onClick={()=>loadVersion(v)}>Wczytaj</button>
-                    <button className="small" onClick={()=>deleteVersion(v.id)}>Usuń</button>
-                  </div>
+      <dialog ref={versionsDialogRef} onClose={()=>setShowVersions(false)} onCancel={()=>setShowVersions(false)}>
+        <div className="inner">
+          <div className="flex-between"><h2 style={{margin:0}}>Zapisane wersje</h2><button className="small" onClick={()=>setShowVersions(false)}>Zamknij</button></div>
+          <p className="hint">Wersje są zapisywane lokalnie w tej przeglądarce.</p>
+          <div className="versions-list">
+            {versions.length===0 && <div className="row muted">Brak zapisanych wersji.</div>}
+            {versions.map(v => (
+              <div className="row" key={v.id}>
+                <div>
+                  <div>{v.name}</div>
+                  <div className="muted" style={{fontSize:11}}>{new Date(v.savedAt).toLocaleString("pl-PL")}</div>
                 </div>
-              ))}
-            </div>
+                <div style={{display:"flex", gap:6}}>
+                  <button className="small" onClick={()=>loadVersion(v)}>Wczytaj</button>
+                  <button className="small" onClick={()=>deleteVersion(v.id)}>Usuń</button>
+                </div>
+              </div>
+            ))}
           </div>
-        </dialog>
-      )}
+        </div>
+      </dialog>
 
       {toast && <div style={{position:"fixed", bottom:16, right:16, background:"var(--ink)", color:"#fff", padding:"10px 16px", borderRadius:8, fontSize:13}}>{toast}</div>}
 
@@ -741,7 +774,7 @@ function Diagnoza({state, pctLatest, pctAvg, pctWeakestKey, setPct, addPctCheckp
         <button className="small" onClick={addPctCheckpoint}>+ Kolejny pomiar</button>
         <div className="banner info flex-between" style={{marginTop:14}}>
           <div>Średnia ostatniego pomiaru: <strong>{pctAvg!=null ? pctAvg.toFixed(1) : "–"}</strong>{pctWeakestKey ? (" · Najsłabszy obszar: " + pctWeakestKey) : ""}</div>
-          <Badge tone={pctTone(pctAvg)}>{pctAvg==null?"brak danych": pctAvg<20?"wymaga działania": pctAvg<25?"wymaga uwagi":"mocny obszar"}</Badge>
+          <Badge tone={pctTone(pctAvg)}>{PCT_TONE_LABELS[pctTone(pctAvg)]}</Badge>
         </div>
       </div>
 
