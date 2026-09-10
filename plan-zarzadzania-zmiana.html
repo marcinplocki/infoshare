@@ -224,7 +224,16 @@ function loadVersions(){
   catch(e){ return []; }
 }
 function saveVersions(list){
-  try { localStorage.setItem(LS_KEY, JSON.stringify(list)); } catch(e){}
+  try { localStorage.setItem(LS_KEY, JSON.stringify(list)); return true; }
+  catch(e){ return false; }
+}
+function storageIsAvailable(){
+  try {
+    const t = "__pzz_test__";
+    localStorage.setItem(t, "1");
+    localStorage.removeItem(t);
+    return true;
+  } catch(e){ return false; }
 }
 
 /* ---------- Drobne komponenty ---------- */
@@ -278,6 +287,7 @@ function App(){
   const [state, setState] = useState(newProjectState);
   const [tab, setTab] = useState("dane");
   const [versions, setVersions] = useState(loadVersions);
+  const [storageOk] = useState(storageIsAvailable);
   const [showVersions, setShowVersions] = useState(false);
   const [toast, setToast] = useState(null);
   const fileInputRef = useRef(null);
@@ -373,8 +383,10 @@ function App(){
     const entry = {id:cryptoId(), name: name || (state.project.nazwa || "Bez nazwy"), savedAt: new Date().toISOString(), data: state};
     const next = [entry, ...versions].slice(0, 50);
     setVersions(next);
-    saveVersions(next);
-    setToast("Wersja zapisana: " + entry.name);
+    const ok = saveVersions(next);
+    setToast(ok
+      ? "Wersja zapisana: " + entry.name
+      : "Uwaga: przeglądarka zablokowała zapis na dysku — wersja jest widoczna tylko do zamknięcia karty. Użyj „Eksport JSON”, żeby jej nie stracić.");
   }
   function loadVersion(entry){
     setState(sanitizeProjectState(entry.data));
@@ -580,6 +592,12 @@ function App(){
       </nav>
 
       <main>
+        {!storageOk && (
+          <div className="banner warn">
+            Ta przeglądarka blokuje lokalny zapis (localStorage) — np. tryb prywatny albo ustawienia bezpieczeństwa.
+            „Zapisz wersję” nie przetrwa zamknięcia karty. Używaj „Eksport JSON” / „Wczytaj JSON”, żeby nie stracić pracy.
+          </div>
+        )}
         {tab==="dane" && <DaneProjektu project={state.project} setField={setProjectField} level={level} surveyTotal={surveyTotal}/>}
         {tab==="ankieta" && <Ankieta answers={state.surveyAnswers} setAnswer={setSurveyAnswer} total={surveyTotal} level={level}/>}
         {tab==="checklisty" && level.poziom<3 && <Checklisty level={level} checklist={state.checklist12} toggle={toggleChecklist}/>}
