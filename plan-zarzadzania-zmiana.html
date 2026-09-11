@@ -970,15 +970,17 @@ function App(){
   // Poziom 3 (duża zmiana) dostaje pełny Diagnoza/Plan działań/Pulpit (PCT + ADKAR + plan);
   // poziom 1-2 dostaje tylko uproszczoną checklistę — nie pokazujemy PCT/ADKAR/planu, dopóki
   // ankieta nie wskaże, że zmiana jest na tyle duża, żeby ich potrzebować.
+  // Obie flagi liczone raz i używane też przy renderze w <main> — żeby warunek nie rozjechał
+  // się między tabsDef i renderem (tak jak się rozjechał, zanim ta flaga istniała).
+  const canSeeChecklist = level.complete && level.poziom < 3;
+  const canSeeFullPlan = level.complete && level.poziom === 3;
   const tabsDef = [
     {id:"dane", label:"Dane projektu"},
     {id:"ankieta", label:"Ankieta — skala zmiany"},
-    (level.complete && level.poziom < 3)
-      ? {id:"checklisty", label:"Checklisty (poziom " + level.poziom + ")"}
-      : null,
-    (level.complete && level.poziom === 3) ? {id:"diagnoza", label:"Diagnoza"} : null,
-    (level.complete && level.poziom === 3) ? {id:"plan", label:"Plan działań"} : null,
-    (level.complete && level.poziom === 3) ? {id:"pulpit", label:"Pulpit"} : null,
+    canSeeChecklist ? {id:"checklisty", label:"Checklisty (poziom " + level.poziom + ")"} : null,
+    canSeeFullPlan ? {id:"diagnoza", label:"Diagnoza"} : null,
+    canSeeFullPlan ? {id:"plan", label:"Plan działań"} : null,
+    canSeeFullPlan ? {id:"pulpit", label:"Pulpit"} : null,
     {id:"przewodnik", label:"Przewodnik"},
   ].filter(Boolean);
 
@@ -1029,22 +1031,22 @@ function App(){
           deliverables={state.deliverables} budgetItems={state.budgetItems} links={state.links} maintenanceCosts={state.maintenanceCosts}
         />}
         {tab==="ankieta" && <Ankieta answers={state.surveyAnswers} setAnswer={setSurveyAnswer} total={surveyTotal} level={level}/>}
-        {tab==="checklisty" && level.complete && level.poziom<3 && <Checklisty level={level} checklist={state.checklist12} toggle={toggleChecklist}/>}
-        {tab==="diagnoza" && level.complete && level.poziom===3 && <Diagnoza
+        {tab==="checklisty" && canSeeChecklist && <Checklisty level={level} checklist={state.checklist12} toggle={toggleChecklist}/>}
+        {tab==="diagnoza" && canSeeFullPlan && <Diagnoza
           state={state} pctLatest={pctLatest} pctAvg={pctAvg} pctWeakestKey={pctWeakestKey}
           setPct={setPct} addPctCheckpoint={addPctCheckpoint}
           addGroup={addGroup} updateGroup={updateGroup} removeGroup={removeGroup}
           setAdkar={setAdkar} categoryBarrier={categoryBarrier} adkarRollup={adkarRollup}
           usesOptionalCategory={state.usesOptionalCategory} enableOptionalCategory={enableOptionalCategory}
         />}
-        {tab==="plan" && level.complete && level.poziom===3 && <PlanDzialan
+        {tab==="plan" && canSeeFullPlan && <PlanDzialan
           actionsByCategory={actionsByCategory} categoryBarrier={categoryBarrier}
           adkarByCategory={state.adkarByCategory} groups={state.groups}
           addAction={addAction} updateAction={updateAction} removeAction={removeAction}
           usesOptionalCategory={state.usesOptionalCategory}
           milestones={state.milestones} teamMembers={state.teamMembers}
         />}
-        {tab==="pulpit" && level.complete && level.poziom===3 && <Pulpit
+        {tab==="pulpit" && canSeeFullPlan && <Pulpit
           project={state.project} level={level} surveyTotal={surveyTotal}
           pctAvg={pctAvg} pctWeakestKey={pctWeakestKey} statusCounts={statusCounts} signals={signals}
           goTo={setTab}
