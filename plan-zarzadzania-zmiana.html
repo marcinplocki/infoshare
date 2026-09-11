@@ -570,9 +570,11 @@ function App(){
   }, [state.surveyAnswers]);
   const level = surveyLevel(surveyTotal, surveyAnsweredCount);
 
-  const pctLatest = state.pctHistory[state.pctHistory.length-1] || {};
-  const pctNums = ["definicjaSukcesu","przywodztwo","zarzadzanieProjektem","zarzadzanieZmiana"]
-    .map(k => pctLatest[k]).filter(v => v !== "" && v != null).map(Number);
+  // Ostatni WYPEŁNIONY pomiar, nie ostatni wiersz tabeli — dodanie pustego "kolejnego pomiaru"
+  // na przyszły przegląd nie może cofnąć pulpitu do "brak danych", skoro realny wynik już jest.
+  const PCT_FIELDS = ["definicjaSukcesu","przywodztwo","zarzadzanieProjektem","zarzadzanieZmiana"];
+  const pctLatest = [...state.pctHistory].reverse().find(p => PCT_FIELDS.some(k => p[k] !== "" && p[k] != null)) || {};
+  const pctNums = PCT_FIELDS.map(k => pctLatest[k]).filter(v => v !== "" && v != null).map(Number);
   const pctAvg = pctNums.length ? (pctNums.reduce((a,b)=>a+b,0)/pctNums.length) : null;
   const pctWeakestKey = (() => {
     const labels = {definicjaSukcesu:"Definicja sukcesu", przywodztwo:"Przywództwo / sponsoring", zarzadzanieProjektem:"Zarządzanie projektem", zarzadzanieZmiana:"Zarządzanie zmianą"};
@@ -701,7 +703,7 @@ function App(){
       const existingNames = new Set(s.groups.map(g => (g.nazwa||"").trim().toLowerCase()));
       const toAdd = kartaImport.groups
         .filter(g => g.nazwa && !existingNames.has(g.nazwa.trim().toLowerCase()))
-        .map(g => ({id:cryptoId(), nazwa:g.nazwa, wplyw:g.wplyw, categoryId: CATEGORIES[0].id}));
+        .map(g => ({id:cryptoId(), nazwa:g.nazwa, wplyw:g.wplyw, categoryId: ""}));
       return {...s, groups: [...s.groups, ...toAdd]};
     });
     setToast("Dodano grupy interesariuszy z karty projektu — przypisz im właściwe kategorie w zakładce Diagnoza.");
@@ -936,7 +938,7 @@ function App(){
     setState(s => ({...s, pctHistory: [...s.pctHistory, {id:cryptoId(), data:"", punktKontrolny:"", definicjaSukcesu:"", przywodztwo:"", zarzadzanieProjektem:"", zarzadzanieZmiana:"", decyzja:"", kolejnyPrzeglad:""}]}));
   }
   function addGroup(){
-    setState(s => ({...s, groups: [...s.groups, {id:cryptoId(), nazwa:"", wplyw:"", categoryId: CATEGORIES[0].id}]}));
+    setState(s => ({...s, groups: [...s.groups, {id:cryptoId(), nazwa:"", wplyw:"", categoryId: ""}]}));
   }
   function updateGroup(id, key, value){
     setState(s => ({...s, groups: s.groups.map(g => g.id===id ? {...g, [key]:value} : g)}));
@@ -1425,6 +1427,12 @@ function Diagnoza({state, pctLatest, pctAvg, pctWeakestKey, setPct, addPctCheckp
           <button className="small" onClick={addGroup}>+ Dodaj grupę</button>
         </div>
         <p className="hint">Wpisz grupy osób, których charakter lub sposób pracy może ulec zmianie, i przypisz każdą do jednej z kategorii.</p>
+        {state.groups.some(g => !g.categoryId) && (
+          <div className="banner warn">
+            {state.groups.filter(g => !g.categoryId).length} grup(y) bez przypisanej kategorii — dopóki jej nie wybierzesz,
+            grupa nie trafi do diagnozy ADKAR ani do Planu działań.
+          </div>
+        )}
         <table>
           <thead><tr><th>Grupa</th><th>Co zmienia się w ich pracy?</th><th>Kategoria</th><th></th></tr></thead>
           <tbody>
@@ -1434,6 +1442,7 @@ function Diagnoza({state, pctLatest, pctAvg, pctWeakestKey, setPct, addPctCheckp
                 <td><input type="text" value={g.wplyw} onChange={e=>updateGroup(g.id,"wplyw",e.target.value)}/></td>
                 <td>
                   <select value={g.categoryId} onChange={e=>updateGroup(g.id,"categoryId",e.target.value)}>
+                    <option value="">— wybierz kategorię —</option>
                     {activeCategories.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
                   </select>
                 </td>
