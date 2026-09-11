@@ -142,10 +142,19 @@ const SURVEY = {
   ],
 };
 
-function surveyLevel(total){
-  if (total <= 25) return {poziom:1, label:"Mała zmiana", risk:"Niskie ryzyko", color:"green"};
-  if (total <= 45) return {poziom:2, label:"Średnia zmiana", risk:"Średnie ryzyko", color:"orange"};
-  return {poziom:3, label:"Duża zmiana", risk:"Wysokie ryzyko", color:"red"};
+const SURVEY_QUESTION_COUNT =
+  SURVEY.partI.length + SURVEY.partII_items.length + 1 /* partII_extra */ + SURVEY.partIII.length;
+
+// Zwraca stan "nieukończona" dopóki nie odpowiedziano na wszystkie pytania — inaczej narzędzie
+// pokazywałoby poziom ryzyka wyliczony z pustych/domyślnych odpowiedzi, czyli fałszywy wynik
+// zanim ktokolwiek cokolwiek wypełnił.
+function surveyLevel(total, answeredCount){
+  if (answeredCount < SURVEY_QUESTION_COUNT){
+    return {poziom:null, label:"Ankieta nieukończona", risk:"", color:"gray", complete:false};
+  }
+  if (total <= 25) return {poziom:1, label:"Mała zmiana", risk:"Niskie ryzyko", color:"green", complete:true};
+  if (total <= 45) return {poziom:2, label:"Średnia zmiana", risk:"Średnie ryzyko", color:"orange", complete:true};
+  return {poziom:3, label:"Duża zmiana", risk:"Wysokie ryzyko", color:"red", complete:true};
 }
 
 function pctTone(v){
@@ -161,10 +170,10 @@ const PCT_TONE_LABELS = {gray:"brak danych", red:"wymaga działania", orange:"wy
 
 function emptySurveyAnswers(){
   const a = {};
-  SURVEY.partI.forEach(q => a[q.id] = 3);
-  SURVEY.partII_items.forEach(it => a[it.id] = 3);
-  a[SURVEY.partII_extra.id] = 3;
-  SURVEY.partIII.forEach(q => a[q.id] = 3);
+  SURVEY.partI.forEach(q => a[q.id] = null);
+  SURVEY.partII_items.forEach(it => a[it.id] = null);
+  a[SURVEY.partII_extra.id] = null;
+  SURVEY.partIII.forEach(q => a[q.id] = null);
   return a;
 }
 
@@ -550,15 +559,16 @@ function App(){
     return ()=>clearTimeout(t);
   }, [toast]);
 
-  const surveyTotal = useMemo(()=>{
-    let sum = 0;
-    SURVEY.partI.forEach(q => sum += Number(state.surveyAnswers[q.id]||0));
-    SURVEY.partII_items.forEach(it => sum += Number(state.surveyAnswers[it.id]||0));
-    sum += Number(state.surveyAnswers[SURVEY.partII_extra.id]||0);
-    SURVEY.partIII.forEach(q => sum += Number(state.surveyAnswers[q.id]||0));
-    return sum;
+  const {surveyTotal, surveyAnsweredCount} = useMemo(()=>{
+    let sum = 0, answered = 0;
+    const allIds = [...SURVEY.partI.map(q=>q.id), ...SURVEY.partII_items.map(it=>it.id), SURVEY.partII_extra.id, ...SURVEY.partIII.map(q=>q.id)];
+    allIds.forEach(id => {
+      const v = state.surveyAnswers[id];
+      if (v !== null && v !== undefined && v !== ""){ sum += Number(v); answered += 1; }
+    });
+    return {surveyTotal: sum, surveyAnsweredCount: answered};
   }, [state.surveyAnswers]);
-  const level = surveyLevel(surveyTotal);
+  const level = surveyLevel(surveyTotal, surveyAnsweredCount);
 
   const pctLatest = state.pctHistory[state.pctHistory.length-1] || {};
   const pctNums = ["definicjaSukcesu","przywodztwo","zarzadzanieProjektem","zarzadzanieZmiana"]
@@ -817,7 +827,7 @@ function App(){
       ["Źródło finansowania", state.project.zrodloFinansowania],
       [],
       ["Liczba punktów w ankiecie skali zmiany", surveyTotal],
-      ["Poziom zmiany", level.poziom + " — " + level.label],
+      ["Poziom zmiany", level.complete ? (level.poziom + " — " + level.label) : "Ankieta nieukończona"],
       ["Ocena ryzyka", level.risk],
       [],
       ["KAMIENIE MILOWE Z KARTY PROJEKTU"],
@@ -891,7 +901,7 @@ function App(){
 
     const pulpitRows = [
       ["PULPIT PZZ"],
-      ["Skala zmiany", surveyTotal + " pkt — poziom " + level.poziom + " (" + level.label + ")"],
+      ["Skala zmiany", level.complete ? (surveyTotal + " pkt — poziom " + level.poziom + " (" + level.label + ")") : "Ankieta nieukończona"],
       ["PCT — średnia ostatniego pomiaru", pctAvg!=null?pctAvg.toFixed(1):""],
       ["PCT — najsłabszy obszar", pctWeakestKey || ""],
       [],
@@ -963,7 +973,7 @@ function App(){
   const tabsDef = [
     {id:"dane", label:"Dane projektu"},
     {id:"ankieta", label:"Ankieta — skala zmiany"},
-    level.poziom < 3
+    (level.complete && level.poziom < 3)
       ? {id:"checklisty", label:"Checklisty (poziom " + level.poziom + ")"}
       : null,
     {id:"diagnoza", label:"Diagnoza"},
@@ -981,7 +991,7 @@ function App(){
       <header className="app">
         <div>
           <h1>Plan zarządzania zmianą — Grupa Merito</h1>
-          <div className="sub">{state.project.nazwa || "Nowy projekt"} · {surveyTotal} pkt · Poziom {level.poziom} ({level.label})</div>
+          <div className="sub">{state.project.nazwa || "Nowy projekt"} · {level.complete ? (surveyTotal + " pkt · Poziom " + level.poziom + " (" + level.label + ")") : ("ankieta: " + surveyAnsweredCount + "/" + SURVEY_QUESTION_COUNT + " pytań")}</div>
         </div>
         <div className="toolbar">
           <button className="ghost" onClick={()=>setShowVersions(true)}>Wersje ({versions.length})</button>
@@ -1019,7 +1029,7 @@ function App(){
           deliverables={state.deliverables} budgetItems={state.budgetItems} links={state.links} maintenanceCosts={state.maintenanceCosts}
         />}
         {tab==="ankieta" && <Ankieta answers={state.surveyAnswers} setAnswer={setSurveyAnswer} total={surveyTotal} level={level}/>}
-        {tab==="checklisty" && level.poziom<3 && <Checklisty level={level} checklist={state.checklist12} toggle={toggleChecklist}/>}
+        {tab==="checklisty" && level.complete && level.poziom<3 && <Checklisty level={level} checklist={state.checklist12} toggle={toggleChecklist}/>}
         {tab==="diagnoza" && <Diagnoza
           state={state} pctLatest={pctLatest} pctAvg={pctAvg} pctWeakestKey={pctWeakestKey}
           setPct={setPct} addPctCheckpoint={addPctCheckpoint}
@@ -1192,7 +1202,7 @@ function DaneProjektu({project, setField, level, surveyTotal, kartaInputRef, onK
         <h3>Wynik ankiety skali zmiany</h3>
         <div className="flex-between">
           <div>{surveyTotal} / 65 pkt</div>
-          <Badge tone={level.color}>Poziom {level.poziom} — {level.label} · {level.risk}</Badge>
+          <Badge tone={level.color}>{level.complete ? ("Poziom " + level.poziom + " — " + level.label + " · " + level.risk) : level.label}</Badge>
         </div>
         <p className="hint">Uzupełnij ankietę w zakładce „Ankieta — skala zmiany”, żeby zobaczyć pełny wynik.</p>
       </div>
@@ -1281,6 +1291,7 @@ function DaneProjektu({project, setField, level, surveyTotal, kartaInputRef, onK
 }
 
 function Ankieta({answers, setAnswer, total, level}){
+  const answeredCount = Object.values(answers).filter(v => v !== null && v !== undefined && v !== "").length;
   return (
     <div className="card">
       <h2>Ankieta — ocena skali zmiany</h2>
@@ -1324,25 +1335,30 @@ function Ankieta({answers, setAnswer, total, level}){
         </div>
       ))}
 
-      <div className="banner info flex-between">
-        <div><strong>{total} / 65 pkt</strong> — {level.label}</div>
-        <Badge tone={level.color}>Poziom {level.poziom} · {level.risk}</Badge>
+      <div className={"banner flex-between " + (level.complete ? "info" : "warn")}>
+        <div><strong>{total} / 65 pkt</strong> — {level.complete ? level.label : ("odpowiedziano na " + answeredCount + "/" + SURVEY_QUESTION_COUNT + " pytań")}</div>
+        <Badge tone={level.color}>{level.complete ? ("Poziom " + level.poziom + " · " + level.risk) : "W trakcie"}</Badge>
       </div>
     </div>
   );
 }
 
+// Głębokość checklisty rośnie z poziomem ryzyka: poziom 1 (mała zmiana) — tylko pytania o
+// sponsora; poziom 2 (średnia zmiana) — pełny zestaw poniżej. Poziom 3 nie trafia tu wcale,
+// dostaje pełny Plan Zarządzania Zmianą (zakładki Diagnoza / Plan działań).
+const CHECKLIST_ITEMS = [
+  {key:"sponsor1", group:"Aktywność sponsora", minPoziom:1, text:"Sponsor jest wskazany z imienia i nazwiska oraz wie, czego od niego oczekujemy."},
+  {key:"sponsor2", group:"Aktywność sponsora", minPoziom:1, text:"Sponsor publicznie i regularnie komunikuje potrzebę zmiany."},
+  {key:"komunikacja1", group:"Komunikowanie zmiany", minPoziom:2, text:"Jest jeden, krótki komunikat wyjaśniający sens zmiany dla osób, których ona dotyczy."},
+  {key:"komunikacja2", group:"Komunikowanie zmiany", minPoziom:2, text:"Wiadomo, kto i kiedy przekaże ten komunikat grupom objętym zmianą."},
+  {key:"koalicja1", group:"Tworzenie koalicji", minPoziom:2, text:"Zidentyfikowano osoby/role, które powinny wspierać zmianę wobec swoich zespołów."},
+  {key:"koalicja2", group:"Tworzenie koalicji", minPoziom:2, text:"Osoby te wiedzą, czego się od nich oczekuje."},
+  {key:"managerowie1", group:"Zaangażowanie menedżerów liniowych", minPoziom:2, text:"Menedżerowie liniowi wiedzą, co się zmienia dla ich zespołów."},
+  {key:"managerowie2", group:"Zaangażowanie menedżerów liniowych", minPoziom:2, text:"Menedżerowie liniowi mają materiały/argumenty do rozmowy z zespołem o zmianie."},
+];
+
 function Checklisty({level, checklist, toggle}){
-  const items = [
-    {key:"sponsor1", group:"Aktywność sponsora", text:"Sponsor jest wskazany z imienia i nazwiska oraz wie, czego od niego oczekujemy."},
-    {key:"sponsor2", group:"Aktywność sponsora", text:"Sponsor publicznie i regularnie komunikuje potrzebę zmiany."},
-    {key:"komunikacja1", group:"Komunikowanie zmiany", text:"Jest jeden, krótki komunikat wyjaśniający sens zmiany dla osób, których ona dotyczy."},
-    {key:"komunikacja2", group:"Komunikowanie zmiany", text:"Wiadomo, kto i kiedy przekaże ten komunikat grupom objętym zmianą."},
-    {key:"koalicja1", group:"Tworzenie koalicji", text:"Zidentyfikowano osoby/role, które powinny wspierać zmianę wobec swoich zespołów."},
-    {key:"koalicja2", group:"Tworzenie koalicji", text:"Osoby te wiedzą, czego się od nich oczekuje."},
-    {key:"managerowie1", group:"Zaangażowanie menedżerów liniowych", text:"Menedżerowie liniowi wiedzą, co się zmienia dla ich zespołów."},
-    {key:"managerowie2", group:"Zaangażowanie menedżerów liniowych", text:"Menedżerowie liniowi mają materiały/argumenty do rozmowy z zespołem o zmianie."},
-  ];
+  const items = CHECKLIST_ITEMS.filter(i => i.minPoziom <= level.poziom);
   const groups = [...new Set(items.map(i=>i.group))];
   return (
     <div className="card">
@@ -1350,7 +1366,12 @@ function Checklisty({level, checklist, toggle}){
         Ten projekt kwalifikuje się do uproszczonej ścieżki — <strong>Poziom {level.poziom} ({level.label})</strong>. Pełny Plan Zarządzania Zmianą (zakładki „Diagnoza” i „Plan działań”) jest przeznaczony przede wszystkim dla dużych zmian (poziom 3) — dla tego projektu zwykle nie jest potrzebny, ale pozostaje dostępny, jeśli chcesz z niego skorzystać.
       </div>
       <h2>Checklista — poziom {level.poziom}</h2>
-      <p className="hint">Wersja robocza (zaślepka). Ostateczną treść checklist dla poziomu 1 i 2 — wraz ze skróconymi pytaniami do rozmowy — przygotowuje Martyna. Poniższe pozycje to tymczasowy zestaw startowy zgodny z ustaleniami ze spotkania.</p>
+      <p className="hint">
+        {level.poziom === 1
+          ? "Mała zmiana — tylko pytania o sponsora."
+          : "Średnia zmiana — pełniejszy, ale wciąż uproszczony zestaw pytań."}
+        {" "}Wersja robocza (zaślepka). Ostateczną treść checklist dla poziomu 1 i 2 — wraz ze skróconymi pytaniami do rozmowy — przygotowuje Martyna.
+      </p>
       {groups.map(g => (
         <div key={g}>
           <h3>{g}</h3>
@@ -1560,7 +1581,7 @@ function Pulpit({project, level, surveyTotal, pctAvg, pctWeakestKey, statusCount
           <div><div className="muted">Projekt / program</div><div>{project.nazwa || "–"}</div></div>
           <div><div className="muted">Sponsor</div><div>{project.sponsor || "–"}</div></div>
           <div><div className="muted">Sposób prowadzenia prac</div><div>{project.sposobProwadzenia || "–"}</div></div>
-          <div><div className="muted">Skala zmiany</div><div><Badge tone={level.color}>{surveyTotal} pkt — poziom {level.poziom}</Badge></div></div>
+          <div><div className="muted">Skala zmiany</div><div><Badge tone={level.color}>{level.complete ? (surveyTotal + " pkt — poziom " + level.poziom) : "ankieta nieukończona"}</Badge></div></div>
           <div><div className="muted">PCT — średnia</div><div><Badge tone={pctTone(pctAvg)}>{pctAvg!=null?pctAvg.toFixed(1):"brak danych"}</Badge></div></div>
           <div><div className="muted">PCT — najsłabszy obszar</div><div>{pctWeakestKey || "–"}</div></div>
         </div>
