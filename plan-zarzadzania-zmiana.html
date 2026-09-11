@@ -967,15 +967,18 @@ function App(){
     setState(s => ({...s, checklist12: {...s.checklist12, [key]: !s.checklist12[key]}}));
   }
 
+  // Poziom 3 (duża zmiana) dostaje pełny Diagnoza/Plan działań/Pulpit (PCT + ADKAR + plan);
+  // poziom 1-2 dostaje tylko uproszczoną checklistę — nie pokazujemy PCT/ADKAR/planu, dopóki
+  // ankieta nie wskaże, że zmiana jest na tyle duża, żeby ich potrzebować.
   const tabsDef = [
     {id:"dane", label:"Dane projektu"},
     {id:"ankieta", label:"Ankieta — skala zmiany"},
     (level.complete && level.poziom < 3)
       ? {id:"checklisty", label:"Checklisty (poziom " + level.poziom + ")"}
       : null,
-    {id:"diagnoza", label:"Diagnoza"},
-    {id:"plan", label:"Plan działań"},
-    {id:"pulpit", label:"Pulpit"},
+    (level.complete && level.poziom === 3) ? {id:"diagnoza", label:"Diagnoza"} : null,
+    (level.complete && level.poziom === 3) ? {id:"plan", label:"Plan działań"} : null,
+    (level.complete && level.poziom === 3) ? {id:"pulpit", label:"Pulpit"} : null,
     {id:"przewodnik", label:"Przewodnik"},
   ].filter(Boolean);
 
@@ -1027,21 +1030,21 @@ function App(){
         />}
         {tab==="ankieta" && <Ankieta answers={state.surveyAnswers} setAnswer={setSurveyAnswer} total={surveyTotal} level={level}/>}
         {tab==="checklisty" && level.complete && level.poziom<3 && <Checklisty level={level} checklist={state.checklist12} toggle={toggleChecklist}/>}
-        {tab==="diagnoza" && <Diagnoza
+        {tab==="diagnoza" && level.complete && level.poziom===3 && <Diagnoza
           state={state} pctLatest={pctLatest} pctAvg={pctAvg} pctWeakestKey={pctWeakestKey}
           setPct={setPct} addPctCheckpoint={addPctCheckpoint}
           addGroup={addGroup} updateGroup={updateGroup} removeGroup={removeGroup}
           setAdkar={setAdkar} categoryBarrier={categoryBarrier} adkarRollup={adkarRollup}
           usesOptionalCategory={state.usesOptionalCategory} enableOptionalCategory={enableOptionalCategory}
         />}
-        {tab==="plan" && <PlanDzialan
+        {tab==="plan" && level.complete && level.poziom===3 && <PlanDzialan
           actionsByCategory={actionsByCategory} categoryBarrier={categoryBarrier}
           adkarByCategory={state.adkarByCategory} groups={state.groups}
           addAction={addAction} updateAction={updateAction} removeAction={removeAction}
           usesOptionalCategory={state.usesOptionalCategory}
           milestones={state.milestones} teamMembers={state.teamMembers}
         />}
-        {tab==="pulpit" && <Pulpit
+        {tab==="pulpit" && level.complete && level.poziom===3 && <Pulpit
           project={state.project} level={level} surveyTotal={surveyTotal}
           pctAvg={pctAvg} pctWeakestKey={pctWeakestKey} statusCounts={statusCounts} signals={signals}
           goTo={setTab}
@@ -1360,7 +1363,7 @@ function Checklisty({level, checklist, toggle}){
   return (
     <div className="card">
       <div className="banner warn">
-        Ten projekt kwalifikuje się do uproszczonej ścieżki — <strong>Poziom {level.poziom} ({level.label})</strong>. Pełny Plan Zarządzania Zmianą (zakładki „Diagnoza” i „Plan działań”) jest przeznaczony przede wszystkim dla dużych zmian (poziom 3) — dla tego projektu zwykle nie jest potrzebny, ale pozostaje dostępny, jeśli chcesz z niego skorzystać.
+        Ten projekt kwalifikuje się do uproszczonej ścieżki — <strong>Poziom {level.poziom} ({level.label})</strong>. Pełny Plan Zarządzania Zmianą (Diagnoza z PCT i ADKAR + Plan działań) jest przeznaczony dla dużych zmian (poziom 3) i dla tego projektu nie jest pokazywany — jeśli w trakcie pracy okaże się, że zmiana jest większa niż wskazała ankieta, wróć do zakładki „Ankieta” i popraw odpowiedzi.
       </div>
       <h2>Checklista — poziom {level.poziom}</h2>
       <p className="hint">
@@ -1620,6 +1623,17 @@ function Przewodnik(){
   return (
     <div className="card">
       <h2>Jak pracować z PZZ</h2>
+      <p className="hint">
+        Wszystko zaczyna się od zakładki <strong>Ankieta — skala zmiany</strong>. Dopóki nie odpowiesz na
+        wszystkie 13 pytań, narzędzie nie wie, jak duża jest zmiana, i nie pokazuje żadnej dalszej ścieżki.
+        Po ukończeniu ankiety pojawia się jedna z dwóch ścieżek — nigdy obie naraz:
+      </p>
+      <ul>
+        <li><strong>Poziom 1–2 (mała/średnia zmiana):</strong> zakładka „Checklisty” — krótka lista pytań, bez PCT i ADKAR.</li>
+        <li><strong>Poziom 3 (duża zmiana):</strong> zakładki „Diagnoza”, „Plan działań” i „Pulpit” — pełny PZZ z PCT i ADKAR.</li>
+      </ul>
+      <p className="hint">Jeśli w trakcie pracy okaże się, że zmiana jest inna niż na starcie, wróć do „Ankiety” i zmień odpowiedzi — ścieżka przełączy się automatycznie.</p>
+      <h3>Praca na pełnej ścieżce (poziom 3)</h3>
       <ol>
         <li><strong>Diagnoza:</strong> uzupełnij PCT, przypisz grupy do kategorii i wykonaj oceny ADKAR.</li>
         <li><strong>Plan:</strong> wpisz działania (max {MAX_ACTIONS_PER_CATEGORY}/kategorię), sposób sprawdzenia gotowości i kanały komunikacji.</li>
