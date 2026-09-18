@@ -247,17 +247,20 @@ function sanitizeProjectState(data){
 // Etykieta i wartość mogą siedzieć w tej samej komórce/wierszu ("Lp | ETYKIETA | wartość")
 // albo etykieta zajmuje cały wiersz, a wartość jest w kolejnym (tak jest np. przy "CEL
 // PROJEKTU" czy "POWODY PODJĘCIA PROJEKTU", gdzie odpowiedź to osobny akapit/lista).
+// Szablony kart (uczelniana / grupowa-projektowa / programowa) różnią się nazewnictwem etykiet
+// ("MENADŻER PROJEKTU" vs "MENADŻER PROGRAMU", "ZWIĄZEK" vs "POWIĄZANIE ZE STRATEGIĄ" itd.) —
+// każdy matcher musi łapać wszystkie warianty, nie tylko ten z jednego przykładowego dokumentu.
 const KARTA_FIELD_MATCHERS = [
-  ["nazwa", /^NAZWA PROJEKTU/i],
+  ["nazwa", /^NAZWA (PROJEKTU|PROGRAMU)/i],
   ["nick", /^NICK\/?\s*SYMBOL/i],
   ["sponsor", /^SPONSOR/i],
-  ["pm", /^MENADŻER PROJEKTU/i],
-  ["typProjektu", /^TYP PROJEKTU/i],
-  ["filie", /^FILIE OBJĘTE PROJEKTEM/i],
-  ["zwiazekZeStrategia", /^ZWIĄZEK ZE STRATEGI/i],
-  ["okresRealizacji", /^OKRES REALIZACJI/i],
-  ["powodyProjektu", /^POWODY PODJĘCIA PROJEKTU/i],
-  ["celProjektu", /^CEL PROJEKTU/i],
+  ["pm", /^MENADŻER (PROJEKTU|PROGRAMU)/i],
+  ["typProjektu", /^TYP (PROJEKTU|PROGRAMU)/i],
+  ["filie", /^(FILIE OBJĘTE PROJEKTEM|PODMIOTY OBJĘTE (PROGRAMEM|PROJEKTEM))/i],
+  ["zwiazekZeStrategia", /^(ZWIĄZEK|POWIĄZANIE) ZE STRATEGI/i],
+  ["okresRealizacji", /^(OKRES|TERMIN) REALIZACJI/i],
+  ["powodyProjektu", /^(POWODY PODJĘCIA (PROJEKTU|PROGRAMU)|PROBLEMY\s*\/?\s*SZANSE DO ROZWIĄZANIA)/i],
+  ["celProjektu", /^CEL (PROJEKTU|PROGRAMU)/i],
   ["budzetRazem", /^RAZEM/i],
   ["wylaczenia", /^WYŁĄCZENIA/i],
   ["zrodloFinansowania", /^ŹRÓDŁO FINANSOWANIA/i],
@@ -284,9 +287,16 @@ function extractFields(tables){
         if (!label) continue;
         KARTA_FIELD_MATCHERS.forEach(([key, re]) => {
           if (fields[key] || !re.test(label)) return;
+          // Wartość to komórka TUŻ OBOK etykiety (i+1), nie zawsze ostatnia w wierszu — niektóre
+          // szablony mieszczą dwie pary etykieta-wartość w jednym wierszu (np. "Nick/symbol | ... |
+          // Nazwa we Flexi | ..."), gdzie branie zawsze ostatniej komórki podstawiłoby cudzą wartość.
+          // Sięgamy do kolejnego wiersza TYLKO gdy etykieta nie ma sąsiedniej komórki w ogóle (np.
+          // długi tekst opisowy pod nagłówkiem) — pusta-ale-istniejąca komórka obok etykiety oznacza
+          // po prostu niewypełnione pole i nie powinna być podmieniana wartością z innego wiersza.
           if (i < cells.length - 1){
-            const value = cells[cells.length - 1];
-            if (value) { fields[key] = value; return; }
+            const value = cells[i + 1];
+            if (value) fields[key] = value;
+            return;
           }
           const nextRow = rows[r + 1];
           if (nextRow && nextRow.length){
@@ -310,62 +320,93 @@ function extractFields(tables){
   return fields;
 }
 
+// "GRUPY OBJĘTE ZMIANĄ" (szablony 2026) zastąpiło "INTERESARIUSZE PROJEKTU" (starszy wzór) —
+// dopasowujemy oba. Liczba kolumn różni się między wzorami (karta programu ma tylko 2: grupa +
+// opis zmiany, bez trzeciej kolumny "jak przygotujemy") i tabela bywa zaśmiecona dodatkowymi
+// wierszami o skali zmiany ("OCENA SKALI ZMIANY...", "LICZBA PUNKTÓW...") — odrzucamy je po treści.
 function extractGroups(tables){
   const groups = [];
-  const stakeholderTable = tables.find(t => /INTERESARIUSZE PROJEKTU/i.test(cellText(t.rows[0])));
+  const stakeholderTable = tables.find(t => /GRUPY OBJ[EĘ]TE ZMIAN|INTERESARIUSZE PROJEKTU/i.test(cellText(t.rows[0])));
   if (!stakeholderTable) return groups;
   Array.from(stakeholderTable.rows).forEach(row => {
     const cells = Array.from(row.cells).map(cellText);
-    if (cells.length < 3) return;
+    if (cells.length < 2) return;
     const grupa = cells[0];
-    if (!grupa || /^grupa interesariuszy$/i.test(grupa) || /INTERESARIUSZE PROJEKTU/i.test(grupa)) return;
-    groups.push({nazwa: grupa, wplyw: [cells[1], cells[2]].filter(Boolean).join(" — ")});
+    if (!grupa || grupa.length > 140) return;
+    if (/^\d+$/.test(grupa.trim())) return; // wiersz tytułowy sekcji ("Lp | TYTUŁ"), nie dana
+    if (/^(grupa( interesariuszy)?|kto\?)$/i.test(grupa)) return;
+    if (/INTERESARIUSZE PROJEKTU|GRUPY OBJ[EĘ]TE ZMIAN|OCENA SKALI ZMIANY|LICZBA PUNKTÓW|KONIECZNOŚĆ PRZYGOTOWANIA|TERMIN PRZYGOTOWANIA/i.test(grupa)) return;
+    groups.push({nazwa: grupa, wplyw: cells.slice(1).filter(Boolean).join(" — ")});
   });
   return groups;
 }
 
-// Wiersze "Kamień milowy: ..." w harmonogramie etapów. Kolumny etapu i terminu mają rowspan
-// na wiele wierszy w oryginalnym Wordzie, więc liczba komórek w wierszu bywa różna — szukamy
-// po treści, nie po pozycji, i termin bierzemy jako ostatnią komórkę wiersza (o ile jest inna
-// niż sama nazwa kamienia).
+// Kamienie milowe występują w dwóch formach zależnie od szablonu:
+// A) dedykowana tabela "KLUCZOWE KAMIENIE MILOWE (PROJEKTU|PROGRAMU)" — KAŻDY numerowany
+//    wiersz to kamień milowy (Lp | Nazwa | Termin);
+// B) harmonogram/etapy ("ETAPY REALIZACJI", "RAMOWY PLAN REALIZACJI", "PLANOWANE DZIAŁANIA I
+//    KAMIENIE MILOWE"), gdzie tylko NIEKTÓRE wiersze są kamieniami, oznaczone prefiksem
+//    "Kamień milowy:" (starszy wzór) albo skrótem "KM:" (wzór 2026) na początku opisu.
+// Kolumny etapu/terminu mają w Wordzie rowspan na wiele wierszy, więc liczba komórek bywa różna —
+// termin to pierwsza NIEPUSTA komórka po tej z nazwą, nie zawsze ostatnia w wierszu.
 function extractMilestones(tables){
   const milestones = [];
-  const table = tables.find(t => /ETAPY REALIZACJI PROJEKTU/i.test(cellText(t.rows[0])));
-  if (!table) return milestones;
-  Array.from(table.rows).forEach(row => {
-    const cells = Array.from(row.cells).map(cellText);
-    const idx = cells.findIndex(c => /^Kamień milowy/i.test(c));
-    if (idx === -1) return;
-    const nazwa = cells[idx].replace(/^Kamień milowy:\s*/i, "").trim();
-    const termin = idx < cells.length - 1 ? cells[cells.length - 1] : "";
-    if (nazwa) milestones.push({nazwa, termin});
-  });
+  const dedicatedTable = tables.find(t => Array.from(t.rows).some(r => /NAZWA KAMIENIA/i.test(cellText(r))));
+  if (dedicatedTable){
+    // Tytuł sekcji ("Lp | NAZWA SEKCJI") ma w pierwszej komórce numer karty (np. "17"), nie do
+    // odróżnienia od Lp kamienia milowego samą tylko cyfrą — dlatego zaczynamy DOPIERO za
+    // wierszem nagłówka kolumn ("L.p. | NAZWA KAMIENIA | TERMIN..."), a nie od początku tabeli.
+    const rows = Array.from(dedicatedTable.rows).map(r => Array.from(r.cells).map(cellText));
+    const headerIdx = rows.findIndex(r => r.some(c => /NAZWA KAMIENIA/i.test(c)));
+    if (headerIdx !== -1){
+      for (let i = headerIdx + 1; i < rows.length; i++){
+        const cells = rows[i];
+        if (cells.length < 2 || !/^\d+$/.test((cells[0]||"").trim())) continue;
+        if (cells[1]) milestones.push({nazwa: cells[1], termin: cells[2] || ""});
+      }
+    }
+  }
+  const scheduleTable = tables.find(t => /ETAPY REALIZACJI|RAMOWY PLAN REALIZACJI|PLANOWANE DZIAŁANIA I KAMIENIE MILOWE/i.test(cellText(t.rows[0])));
+  if (scheduleTable){
+    Array.from(scheduleTable.rows).forEach(row => {
+      const cells = Array.from(row.cells).map(cellText);
+      const idx = cells.findIndex(c => /^(Kamień milowy|KM)\s*[:\s]/i.test(c));
+      if (idx === -1) return;
+      const nazwa = cells[idx].replace(/^(Kamień milowy|KM)\s*:?\s*/i, "").trim();
+      const termin = cells.slice(idx + 1).find(c => c && c.trim()) || "";
+      if (nazwa) milestones.push({nazwa, termin});
+    });
+  }
   return milestones;
 }
 
+// "OSOBY ZAANGAŻOWANE W PROJEKT..." (wzór 2026) zastąpiło "SKŁAD ZESPOŁU PROJEKTOWEGO..."
+// (starszy wzór) i ma o kolumnę mniej (bez "szacowane zaangażowanie") — akceptujemy 3 lub 4 komórki.
 function extractTeam(tables){
   const team = [];
-  const table = tables.find(t => /SKŁAD ZESPOŁU PROJEKTOWEGO/i.test(cellText(t.rows[0])));
+  const table = tables.find(t => /SKŁAD ZESPOŁU PROJEKTOWEGO|OSOBY ZAANGAŻOWANE W (PROJEKT|PROGRAM)/i.test(cellText(t.rows[0])));
   if (!table) return team;
   Array.from(table.rows).forEach(row => {
     const cells = Array.from(row.cells).map(cellText);
-    if (cells.length < 4) return;
+    if (cells.length < 3) return;
     const [imie, dzial, rola, zaangazowanie] = cells;
     if (!imie || /^imi. i nazwisko$/i.test(imie)) return;
-    team.push({imie, dzial, rola, zaangazowanie});
+    team.push({imie, dzial, rola, zaangazowanie: zaangazowanie || ""});
   });
   return team;
 }
 
+// "NAJWAŻNIEJSZE RYZYKA PROJEKTU" (uczelnie/projekty, wzór 2026) i "KLUCZOWE RYZYKA PROGRAMOWE"
+// (programy) obok starszego "KLUCZOWE RYZYKA PROJEKTU".
 function extractRisks(tables){
   const risks = [];
-  const table = tables.find(t => /KLUCZOWE RYZYKA PROJEKTU/i.test(cellText(t.rows[0])));
+  const table = tables.find(t => /(NAJWAŻNIEJSZE|KLUCZOWE) RYZYKA/i.test(cellText(t.rows[0])));
   if (!table) return risks;
   Array.from(table.rows).forEach(row => {
     const cells = Array.from(row.cells).map(cellText);
     if (cells.length < 3) return;
     const [, ryzyko, zarzadzanie] = cells;
-    if (!ryzyko || /^ryzyko$/i.test(ryzyko)) return;
+    if (!ryzyko || /^ryzyko\b/i.test(ryzyko.trim())) return;
     risks.push({ryzyko, zarzadzanie});
   });
   return risks;
@@ -380,53 +421,87 @@ function extractSporadicTeam(tables){
   if (!table) return team;
   Array.from(table.rows).forEach(row => {
     const cells = Array.from(row.cells).map(cellText);
-    if (cells.length < 4) return;
+    if (cells.length < 3) return;
     const [imie, dzial, rola, zaangazowanie] = cells;
     if (!imie || /^imi. i nazwisko$/i.test(imie)) return;
-    team.push({imie, dzial, rola, zaangazowanie});
+    team.push({imie, dzial, rola, zaangazowanie: zaangazowanie || ""});
   });
   return team;
 }
 
+// Produkty/komponenty: kolumny i ich KOLEJNOŚĆ różnią się między wzorami (stary ma "wartość
+// liczbową", nowy jej nie ma i zamienia kolejność terminu/odbiorcy; karta programu w ogóle nie ma
+// "produktów", tylko "komponenty programu" z inną nazwą kolumny). Zamiast zakładać stałą pozycję,
+// znajdujemy nagłówek (wiersz z komórką "L.p.") i mapujemy kolumny po treści etykiety.
 function extractDeliverables(tables){
   const items = [];
-  // Sekcja "Wypracowane produkty" nie zaczyna własnej tabeli w Wordzie — jest dalszą częścią
-  // tej samej tabeli co "Główna korzyść biznesowa", więc szukamy tytułu w dowolnym wierszu.
-  const table = tables.find(t => Array.from(t.rows).some(r => /WYPRACOWANE w ramach projektu PRODUKTY/i.test(cellText(r))));
+  const table = tables.find(t => Array.from(t.rows).some(r =>
+    /WYPRACOWANE\s+w\s+ramach\s+projektu\s+PRODUKTY|PLANOWANE\s+PRODUKT|PLANOWANE\s+KOMPONENTY/i.test(cellText(r))));
   if (!table) return items;
-  Array.from(table.rows).forEach(row => {
-    const cells = Array.from(row.cells).map(cellText);
-    if (cells.length < 5) return;
-    const [lp, produkt, wartosc, termin, odbiorca] = cells;
-    if (!produkt || /^produkt$/i.test(produkt) || !/^\d+$/.test(lp)) return;
-    items.push({produkt, wartosc, termin, odbiorca});
-  });
+  const rows = Array.from(table.rows).map(row => Array.from(row.cells).map(cellText));
+  const headerIdx = rows.findIndex(r => r.some(c => /^L\.?\s?P\.?$/i.test(c.trim())));
+  if (headerIdx === -1) return items;
+  const header = rows[headerIdx];
+  const findCol = re => header.findIndex(c => re.test(c));
+  const produktCol = findCol(/PRODUKT|KOMPONENT/i);
+  const terminCol = findCol(/TERMIN|DATA DOSTARCZENIA|OKRES REALIZACJI/i);
+  const odbiorcaCol = findCol(/ODBIERAJ|ODBIORC|GRONO/i);
+  const wartoscCol = findCol(/WARTOŚĆ|LICZBOW|RODZAJ/i);
+  for (let r = headerIdx + 1; r < rows.length; r++){
+    const cells = rows[r];
+    if (!/^\d+$/.test((cells[0] || "").trim())) continue;
+    const produkt = produktCol >= 0 ? cells[produktCol] : cells[1];
+    if (!produkt) continue;
+    items.push({
+      produkt,
+      wartosc: wartoscCol >= 0 ? (cells[wartoscCol] || "") : "",
+      termin: terminCol >= 0 ? (cells[terminCol] || "") : "",
+      odbiorca: odbiorcaCol >= 0 ? (cells[odbiorcaCol] || "") : "",
+    });
+  }
   return items;
 }
 
+// Pozycje budżetowe: liczba i kolejność kolumn różni się (czasem jest Lp, czasem nie; czasem
+// dochodzi "kwota dofinansowania zewnętrznego"). Zamiast zakładać pozycję, rozpoznajemy komórki
+// po TREŚCI w danym wierszu: kwota to komórka złożona głównie z cyfr, pozycja to najdłuższy
+// pozostały tekst — działa niezależnie od tego, która to kolumna po kolei.
 function extractBudgetItems(tables){
   const items = [];
-  const table = tables.find(t => /BUDŻET PROJEKTU/i.test(cellText(t.rows[0])) && !/SZACUNKOWE/i.test(cellText(t.rows[0])));
+  const table = tables.find(t => /BUDŻET (PROJEKTU|PROGRAMU)/i.test(cellText(t.rows[0])) && !/SZACUNKOWE/i.test(cellText(t.rows[0])));
   if (!table) return items;
+  const isAmount = c => /\d/.test(c) && /^[\d\s.,?]+$/.test(c.trim());
+  const isExcludedLabel = c => /^(RAZEM|ŹRÓDŁO FINANSOWANIA|WAŻNE ZAŁOŻENIA|MPK|ZLECENIE|POZYCJA KOSZTOWA|KWOTA)/i.test(c.trim());
   Array.from(table.rows).forEach(row => {
-    const cells = Array.from(row.cells).map(cellText);
-    // tylko wiersze pozycji kosztowych: Lp (liczba) | Pozycja | Kwota — pomija RAZEM/Źródło/Założenia
-    if (cells.length !== 3 || !/^\d+$/.test(cells[0])) return;
-    items.push({pozycja: cells[1], kwota: cells[2]});
+    const cells = Array.from(row.cells).map(cellText).filter(Boolean);
+    // Etykiety typu "Źródło finansowania" / nagłówek kolumn mogą wylądować w KTÓREJKOLWIEK
+    // komórce (nie tylko tej wybranej jako "pozycja" wg długości tekstu) — trzeba sprawdzić cały
+    // wiersz, inaczej taki wiersz-etykieta (np. "ŹRÓDŁO FINANSOWANIA* | Budżet centralny IT")
+    // zostanie błędnie potraktowany jak pozycja kosztowa.
+    if (cells.some(isExcludedLabel)) return;
+    const nonLp = cells.filter(c => !/^\d{1,3}$/.test(c.trim()));
+    if (nonLp.length < 2) return;
+    const amountCell = nonLp.find(isAmount);
+    const textCells = nonLp.filter(c => c !== amountCell);
+    const pozycja = textCells.sort((a, b) => b.length - a.length)[0];
+    if (!pozycja) return;
+    items.push({pozycja, kwota: amountCell || ""});
   });
   return items;
 }
 
 function extractLinks(tables){
   const links = [];
-  const table = tables.find(t => /POWIĄZANIA.*PUNKTY STYKU PROJEKTU/i.test(cellText(t.rows[0])));
+  const table = tables.find(t => /POWIĄZANIA.*PUNKTY STYKU (PROJEKTU|PROGRAMU)/i.test(cellText(t.rows[0])));
   if (!table) return links;
   Array.from(table.rows).forEach(row => {
     const cells = Array.from(row.cells).map(cellText);
-    if (cells.length < 3) return;
+    if (cells.length < 2) return;
     const [projekt, zaleznosc, wspolpraca] = cells;
-    if (!projekt || /^projekt\/? ?portfel/i.test(projekt)) return;
-    links.push({projekt, zaleznosc, wspolpraca});
+    if (!projekt) return;
+    if (/^\d+$/.test(projekt.trim())) return; // wiersz tytułowy sekcji ("Lp | TYTUŁ"), nie dana
+    if (/^projekt\/? ?portfel/i.test(projekt)) return;
+    links.push({projekt, zaleznosc: zaleznosc || "", wspolpraca: wspolpraca || ""});
   });
   return links;
 }
@@ -435,13 +510,32 @@ function extractMaintenanceCosts(tables){
   const items = [];
   const table = tables.find(t => /SZACUNKOWE KOSZTY UTRZYMANIA/i.test(cellText(t.rows[0])));
   if (!table) return items;
-  Array.from(table.rows).forEach(row => {
-    const cells = Array.from(row.cells).map(cellText);
-    if (cells.length < 3) return;
-    const [rok, kategorie, kwota] = cells;
-    if (!rok || /^rok$/i.test(rok) || /^sum/i.test(rok)) return;
-    items.push({rok, kategorie, kwota: kwota||""});
-  });
+  const rows = Array.from(table.rows).map(r => Array.from(r.cells).map(cellText));
+  const headerIdx = rows.findIndex(r => r.some(c => /^ROK/i.test(c)) && r.some(c => /KATEGORI/i.test(c)));
+  if (headerIdx === -1) return items;
+  const rokFirst = /^ROK/i.test(rows[headerIdx][0] || "");
+  if (rokFirst) {
+    // wariant: wiersz = rok, kolumny ROK | kategorie | kwota (np. karta uczelniana)
+    for (let i = headerIdx + 1; i < rows.length; i++) {
+      const cells = rows[i];
+      if (cells.length < 3) break;
+      const [rok, kategorie, kwota] = cells;
+      if (!rok || /^sum/i.test(rok)) break;
+      items.push({rok, kategorie, kwota: kwota || ""});
+    }
+  } else {
+    // wariant: wiersz = kategoria kosztu, kolumny = lata; etykiety lat w kolejnym wierszu
+    const years = (rows[headerIdx + 1] || []).filter(c => c && c.trim());
+    for (let i = headerIdx + 2; i < rows.length; i++) {
+      const cells = rows[i];
+      if (cells.length < 2 || !/^\d+$/.test((cells[0] || "").trim())) break;
+      const rest = cells.slice(1);
+      const kategorie = rest.find(c => c && c.trim() && !/^[\d\s.,]+$/.test(c.trim())) || "";
+      const amounts = rest.filter(c => c && c.trim() && /^[\d\s.,]+$/.test(c.trim()));
+      if (!kategorie && !amounts.length) continue;
+      items.push({rok: years.join(" / "), kategorie, kwota: amounts.join(", ")});
+    }
+  }
   return items;
 }
 
