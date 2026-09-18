@@ -415,11 +415,26 @@ function isDateLike(text){
   const t = (text||"").trim();
   return /^\d{1,2}[.\/]\d{1,2}[.\/]\d{2,4}$/.test(t) || /^(Q[1-4]\s*)?20\d{2}$/i.test(t);
 }
+// Asercje (nie uruchamiane automatycznie — pilnują założeń przy kolejnych zmianach):
+//   parseAmount("200 000")      === 200000
+//   parseAmount("1 200 000")    === 1200000
+//   parseAmount("120 000,50")   === 120000.5
+//   parseAmount("200.000")      === 200000   (kropka tysięcy, nie ułamek)
+//   parseAmount("1.200.000")    === 1200000
+//   parseAmount("120,5")        === 120.5
 function parseAmount(text){
   if (!text) return null;
-  const cleaned = String(text).replace(/zł/gi, "").replace(/[^\d,.\s]/g, "").trim();
+  let cleaned = String(text).replace(/zł/gi, "").replace(/[^\d,.\s]/g, "").trim().replace(/\s+/g, "");
   if (!cleaned) return null;
-  const n = parseFloat(cleaned.replace(/\s+/g, "").replace(",", "."));
+  // Kropka po której następują dokładnie trzy cyfry (powtórzone grupowo, np. "1.200.000") to
+  // separator tysięcy, nie przecinek dziesiętny — ale TYLKO gdy w liczbie nie ma też przecinka
+  // (przecinek jednoznacznie wskazuje część ułamkową, więc kropka obok niego zawsze jest tysięcy).
+  // Bez tego rozróżnienia "200.000" parsowało się na 200 zamiast 200000 — błąd cichy, bo suma
+  // wychodziła 1000 razy za mała i nic tego nie sygnalizowało.
+  if (!cleaned.includes(",") && /^\d{1,3}(\.\d{3})+$/.test(cleaned)){
+    cleaned = cleaned.replace(/\./g, "");
+  }
+  const n = parseFloat(cleaned.replace(",", "."));
   return isNaN(n) ? null : n;
 }
 function formatAmount(n){
@@ -1106,7 +1121,12 @@ function App(){
     wsDane.addRow([]);
     xlsLabelRow(wsDane, "Nick/symbol", state.project.nick);
     xlsLabelRow(wsDane, "Filie objęte projektem", state.project.filie);
-    xlsLabelRow(wsDane, "Budżet razem (brutto)", state.project.budzetRazem);
+    // Karty w praktyce nie wypełniają wiersza "RAZEM" (patrz budzetRazemComputed) — eksport ma
+    // zapisywać wartość EFEKTYWNĄ (tę, którą użytkownik widzi na ekranie), nie surowe, puste pole
+    // z karty, bo inaczej załącznik do karty pokazuje pustkę tam, gdzie aplikacja liczy sumę.
+    const budzetRazemEfektywny = (state.project.budzetRazem||"").trim()
+      || (budzetRazemComputed ? budzetRazemComputed + " (wyliczone automatycznie z pozycji budżetowych)" : "");
+    xlsLabelRow(wsDane, "Budżet razem (brutto)", budzetRazemEfektywny);
     xlsLabelRow(wsDane, "Źródło finansowania", state.project.zrodloFinansowania);
     xlsLabelRow(wsDane, "Związek ze strategią", state.project.zwiazekZeStrategia);
     xlsLabelRow(wsDane, "Powody podjęcia projektu", state.project.powodyProjektu);
