@@ -892,6 +892,11 @@ function App(){
   function applyKartaFields(){
     if (!kartaImport) return;
     setState(s => ({...s, project: {...s.project, ...kartaImport.fields}}));
+    // Po zastosowaniu te same wartości widać już w formularzu poniżej — zostawienie ich też w
+    // tabeli podglądu to czysta duplikacja ("to jest do góry, to już jest do góry, to po co tu
+    // drugi raz?"), więc czyścimy tylko `fields` z podglądu (reszta sekcji karty — grupy, kamienie
+    // milowe itd. — zostaje widoczna, dopóki nie zostanie zastosowana osobno).
+    setKartaImport(ki => ki ? {...ki, fields: {}} : ki);
     setToast("Zastosowano dane z karty projektu.");
   }
   function applyKartaGroups(){
@@ -1277,26 +1282,45 @@ function App(){
     setState(s => ({...s, checklist12: {...s.checklist12, [key]: !s.checklist12[key]}}));
   }
 
-  // Poziom 3 (duża zmiana) dostaje pełny Diagnoza/Plan działań/Pulpit (PCT + ADKAR + plan);
-  // poziom 1-2 dostaje tylko uproszczoną checklistę — nie pokazujemy PCT/ADKAR/planu, dopóki
-  // ankieta nie wskaże, że zmiana jest na tyle duża, żeby ich potrzebować.
+  // Poziom 1 (mała zmiana) dostaje tylko checklistę — grupy i reszta zostają w karcie projektu.
+  // Poziom 2 (średnia) dostaje checklistę I Diagnozę/Plan/Pulpit, ale na razie bez sekcji PCT
+  // (uproszczony PCT dla poziomu 2 to osobny content, którego jeszcze nie mamy — do czasu jego
+  // powstania Diagnoza dla poziomu 2 zaczyna się od Grup objętych zmianą).
+  // Poziom 3 (duża) dostaje wszystko, łącznie z pełnym PCT.
   // Obie flagi liczone raz i używane też przy renderze w <main> — żeby warunek nie rozjechał
   // się między tabsDef i renderem (tak jak się rozjechał, zanim ta flaga istniała).
   const canSeeChecklist = level.complete && level.poziom < 3;
-  const canSeeFullPlan = level.complete && level.poziom === 3;
+  const canSeeDiagnoza = level.complete && level.poziom >= 2;
+  const canSeePct = level.complete && level.poziom === 3;
+  // Twarda blokada (nie tylko ostrzeżenie): dopóki jakaś grupa ma kategorię, ale brakuje jej
+  // opisu "Co zmienia się w ich pracy?" (albo brakuje kategorii), Plan działań i Pulpit są
+  // niedostępne — wymuszamy uzupełnienie diagnozy, zanim będzie można przejść dalej.
+  const hasIncompleteGroups = state.groups.some(g => !g.categoryId || !(g.wplyw||"").trim());
+  const canSeePlanPulpit = canSeeDiagnoza && !hasIncompleteGroups;
   const tabsDef = [
     {id:"dane", label:"Dane projektu"},
     {id:"ankieta", label:"Ankieta — skala zmiany"},
     canSeeChecklist ? {id:"checklisty", label:"Checklisty (poziom " + level.poziom + ")"} : null,
-    canSeeFullPlan ? {id:"diagnoza", label:"Diagnoza"} : null,
-    canSeeFullPlan ? {id:"plan", label:"Plan działań"} : null,
-    canSeeFullPlan ? {id:"pulpit", label:"Pulpit"} : null,
+    canSeeDiagnoza ? {id:"diagnoza", label:"Diagnoza"} : null,
+    canSeePlanPulpit ? {id:"plan", label:"Plan działań"} : null,
+    canSeePlanPulpit ? {id:"pulpit", label:"Pulpit"} : null,
     {id:"przewodnik", label:"Przewodnik"},
   ].filter(Boolean);
 
   useEffect(()=>{
     if (!tabsDef.some(t => t.id === tab)) setTab("dane");
   }, [tab, tabsDef]);
+
+  // Komunikat "co się właśnie odblokowało" — pojawia się raz, gdy ankieta ustali (albo zmieni)
+  // poziom zmiany, żeby użytkownik wiedział, dokąd iść dalej, zamiast się domyślać.
+  const prevPoziomRef = useRef(null);
+  useEffect(()=>{
+    if (level.complete && prevPoziomRef.current !== level.poziom){
+      const nextLabel = level.poziom === 3 ? "Diagnoza" : "Checklisty";
+      setToast("Ustalono poziom " + level.poziom + " (" + level.label + "). Przejdź do zakładki „" + nextLabel + "”, żeby zobaczyć następny krok.");
+    }
+    prevPoziomRef.current = level.complete ? level.poziom : null;
+  }, [level.complete, level.poziom]);
 
   return (
     <React.Fragment>
@@ -1335,7 +1359,7 @@ function App(){
             „Zapisz wersję” nie przetrwa zamknięcia karty. Używaj „Eksport JSON” / „Wczytaj JSON”, żeby nie stracić pracy.
           </div>
         )}
-        {tab==="dane" && <DaneProjektu project={state.project} setField={setProjectField} level={level} surveyTotal={surveyTotal}
+        {tab==="dane" && <DaneProjektu project={state.project} setField={setProjectField}
           kartaInputRef={kartaInputRef} onKartaFile={handleKartaFile}
           kartaImport={kartaImport} onApplyKartaFields={applyKartaFields} onApplyKartaGroups={applyKartaGroups}
           onApplyKartaMilestones={applyKartaMilestones} onApplyKartaTeam={applyKartaTeam} onApplyKartaRisks={applyKartaRisks}
@@ -1348,21 +1372,22 @@ function App(){
         />}
         {tab==="ankieta" && <Ankieta answers={state.surveyAnswers} setAnswer={setSurveyAnswer} total={surveyTotal} level={level}/>}
         {tab==="checklisty" && canSeeChecklist && <Checklisty level={level} checklist={state.checklist12} toggle={toggleChecklist}/>}
-        {tab==="diagnoza" && canSeeFullPlan && <Diagnoza
+        {tab==="diagnoza" && canSeeDiagnoza && <Diagnoza
           state={state} pctLatest={pctLatest} pctAvg={pctAvg} pctWeakestAreas={pctWeakestAreas}
+          showPct={canSeePct} hasIncompleteGroups={hasIncompleteGroups}
           setPct={setPct} addPctCheckpoint={addPctCheckpoint}
           addGroup={addGroup} updateGroup={updateGroup} removeGroup={removeGroup}
           setAdkar={setAdkar} categoryBarrier={categoryBarrier} adkarRollup={adkarRollup}
           usesOptionalCategory={state.usesOptionalCategory} enableOptionalCategory={enableOptionalCategory}
         />}
-        {tab==="plan" && canSeeFullPlan && <PlanDzialan
+        {tab==="plan" && canSeePlanPulpit && <PlanDzialan
           actionsByCategory={actionsByCategory} categoryBarrier={categoryBarrier}
           adkarByCategory={state.adkarByCategory} groups={state.groups}
           addAction={addAction} updateAction={updateAction} removeAction={removeAction}
           usesOptionalCategory={state.usesOptionalCategory}
           milestones={state.milestones} teamMembers={state.teamMembers}
         />}
-        {tab==="pulpit" && canSeeFullPlan && <Pulpit
+        {tab==="pulpit" && canSeePlanPulpit && <Pulpit
           project={state.project} level={level} surveyTotal={surveyTotal}
           pctAvg={pctAvg} pctWeakestAreas={pctWeakestAreas} statusCounts={statusCounts} signals={signals}
           goTo={setTab}
@@ -1420,13 +1445,27 @@ function KartaImportSection({title, count, previewPills, onApply, applyLabel}){
   );
 }
 
-function DaneProjektu({project, setField, level, surveyTotal, kartaInputRef, onKartaFile, kartaImport,
+function DaneProjektu({project, setField, kartaInputRef, onKartaFile, kartaImport,
   onApplyKartaFields, onApplyKartaGroups, onApplyKartaMilestones, onApplyKartaTeam, onApplyKartaRisks,
   onApplyKartaDeliverables, onApplyKartaBudgetItems, onApplyKartaLinks, onApplyKartaMaintenanceCosts, onApplyKartaAll,
   onDismissKarta, milestones, teamMembers, risks, deliverables, budgetItems, links, maintenanceCosts}){
   const hasReference = milestones.length>0 || teamMembers.length>0 || risks.length>0 || deliverables.length>0 || budgetItems.length>0 || links.length>0 || maintenanceCosts.length>0;
   return (
     <React.Fragment>
+      <div className="card">
+        <h2>Jak zacząć</h2>
+        <ol>
+          <li>Wczytaj kartę projektu (.docx) poniżej — bez tabelki „Grupy objęte zmianą”, tę wypełnisz w kroku 3.</li>
+          <li>Przejdź do zakładki „Ankieta — skala zmiany” i odpowiedz na wszystkie pytania — to ustali poziom zmiany.</li>
+          <li>
+            Dla <strong>małej zmiany</strong> wypełnij tabelkę grup bezpośrednio w karcie projektu — w tym narzędziu nic
+            więcej nie trzeba robić. Dla <strong>średniej i dużej zmiany</strong> wypełnij grupy i resztę diagnozy tutaj,
+            w zakładce „Diagnoza” — to narzędzie eksportuje wynik jako załącznik do karty. Nie wypełniaj tabelki grup
+            w obu miejscach naraz.
+          </li>
+        </ol>
+      </div>
+
       <div className="card">
         <h2>Wczytaj kartę projektu</h2>
         <p className="hint">
@@ -1511,12 +1550,6 @@ function DaneProjektu({project, setField, level, surveyTotal, kartaInputRef, onK
           <Field label="Częstotliwość przeglądu PZZ"><input type="text" value={project.czestotliwosc} onChange={e=>setField("czestotliwosc", e.target.value)} placeholder="np. co miesiąc"/></Field>
         </div>
         <p className="hint" style={{marginTop:10}}>Karta projektu nie zawiera Change Managera ani rytmu przeglądu PZZ — te dwa pola zawsze trzeba wpisać ręcznie.</p>
-        <h3>Wynik ankiety skali zmiany</h3>
-        <div className="flex-between">
-          <div>{surveyTotal} / 65 pkt</div>
-          <Badge tone={level.color}>{level.complete ? ("Poziom " + level.poziom + " — " + level.label + " · " + level.risk) : level.label}</Badge>
-        </div>
-        <p className="hint">Uzupełnij ankietę w zakładce „Ankieta — skala zmiany”, żeby zobaczyć pełny wynik.</p>
       </div>
 
       <div className="card">
@@ -1681,7 +1714,11 @@ function Checklisty({level, checklist, toggle}){
   return (
     <div className="card">
       <div className="banner warn">
-        Ten projekt kwalifikuje się do uproszczonej ścieżki — <strong>Poziom {level.poziom} ({level.label})</strong>. Pełny Plan Zarządzania Zmianą (Diagnoza z PCT i ADKAR + Plan działań) jest przeznaczony dla dużych zmian (poziom 3) i dla tego projektu nie jest pokazywany — jeśli w trakcie pracy okaże się, że zmiana jest większa niż wskazała ankieta, wróć do zakładki „Ankieta” i popraw odpowiedzi.
+        Ten projekt kwalifikuje się do uproszczonej ścieżki — <strong>Poziom {level.poziom} ({level.label})</strong>.
+        {level.poziom === 1
+          ? " Pełny Plan Zarządzania Zmianą (Diagnoza z PCT i ADKAR + Plan działań) jest przeznaczony dla średnich i dużych zmian (poziom 2–3) i dla tego projektu nie jest pokazywany — grupy objęte zmianą wypełnij bezpośrednio w karcie projektu."
+          : " Oprócz tej checklisty masz też dostęp do zakładek „Diagnoza” i „Plan działań” (na razie bez pełnego PCT — to dla poziomu 2 jeszcze w przygotowaniu)."}
+        {" "}Jeśli w trakcie pracy okaże się, że zmiana jest inna niż wskazała ankieta, wróć do zakładki „Ankieta” i popraw odpowiedzi.
       </div>
       <h2>Checklista — poziom {level.poziom}</h2>
       <p className="hint">
@@ -1707,64 +1744,79 @@ function Checklisty({level, checklist, toggle}){
   );
 }
 
-function Diagnoza({state, pctLatest, pctAvg, pctWeakestAreas, setPct, addPctCheckpoint, addGroup, updateGroup, removeGroup, setAdkar, categoryBarrier, adkarRollup, usesOptionalCategory, enableOptionalCategory}){
+function Diagnoza({state, pctLatest, pctAvg, pctWeakestAreas, showPct, hasIncompleteGroups, setPct, addPctCheckpoint, addGroup, updateGroup, removeGroup, setAdkar, categoryBarrier, adkarRollup, usesOptionalCategory, enableOptionalCategory}){
   const activeCategories = CATEGORIES.concat(usesOptionalCategory ? [OPTIONAL_CATEGORY] : []);
   const missingCategory = state.groups.filter(g => !g.categoryId).length;
   const missingWplyw = state.groups.filter(g => g.categoryId && !(g.wplyw||"").trim()).length;
+  // Numeracja sekcji liczona dynamicznie — dla średniej zmiany sekcja PCT jest ukryta (uproszczony
+  // PCT to jeszcze nieistniejący content), więc "Grupy" muszą zostać krokiem 1, nie 2.
+  let step = 0;
+  const pctStep = showPct ? ++step : null;
+  const groupsStep = ++step;
+  const adkarStep = ++step;
+  const skanStep = ++step;
   return (
     <React.Fragment>
-      <div className="card">
-        <h2>1. PCT — kondycja całego przedsięwzięcia</h2>
-        <p className="hint">
-          Ocena pokazuje, na ile przedsięwzięcie jest przygotowane nie tylko do dostarczenia rezultatów projektu,
-          ale również do ich skutecznego wdrożenia i wykorzystania w codziennej działalności organizacji.
-        </p>
-        <p className="hint">Progi robocze (nie są oficjalnymi progami Prosci): 10–19 = wymaga działania, 20–24 = wymaga uwagi, 25–30 = mocny obszar. Zawsze reaguj na najsłabszy z czterech wyników.</p>
-        <details style={{marginBottom:14}}>
-          <summary style={{cursor:"pointer", fontWeight:600}}>Przykłady działań dla poszczególnych obszarów</summary>
-          <table style={{marginTop:8}}>
-            <thead><tr><th>Obszar</th><th>Przykład wpisu</th></tr></thead>
-            <tbody>{PCT_AREAS.map(a => <tr key={a.key}><th style={{width:200}}>{a.label}</th><td>{a.example}</td></tr>)}</tbody>
-          </table>
-        </details>
-        {state.pctHistory.map((p, idx) => {
-          const rowWeakest = computeWeakestPctAreas(p);
-          return (
-            <div key={p.id} className="action-row">
-              <div className="grid cols4">
-                <Field label="Data"><input type="date" value={p.data} onChange={e=>setPct(idx,"data",e.target.value)}/></Field>
-                <Field label="Punkt kontrolny"><input type="text" value={p.punktKontrolny} onChange={e=>setPct(idx,"punktKontrolny",e.target.value)}/></Field>
-                <Field label="Definicja sukcesu (1-30)"><input type="number" min="1" max="30" value={p.definicjaSukcesu} onChange={e=>setPct(idx,"definicjaSukcesu",e.target.value)}/></Field>
-                <Field label="Przywództwo / sponsoring (1-30)"><input type="number" min="1" max="30" value={p.przywodztwo} onChange={e=>setPct(idx,"przywodztwo",e.target.value)}/></Field>
-                <Field label="Zarządzanie projektem (1-30)"><input type="number" min="1" max="30" value={p.zarzadzanieProjektem} onChange={e=>setPct(idx,"zarzadzanieProjektem",e.target.value)}/></Field>
-                <Field label="Zarządzanie zmianą (1-30)"><input type="number" min="1" max="30" value={p.zarzadzanieZmiana} onChange={e=>setPct(idx,"zarzadzanieZmiana",e.target.value)}/></Field>
-              </div>
-              {rowWeakest.length > 0 && (
-                <div className="banner warn" style={{marginTop:10}}>
-                  <strong>Najsłabszy obszar: {rowWeakest.map(a=>a.label+" ("+a.value+"/30)").join(" i ")}</strong>
-                  {rowWeakest.map(a => <div key={a.key} style={{marginTop:4}}>{a.recommendation}</div>)}
+      {showPct && (
+        <div className="card">
+          <h2>{pctStep}. PCT — kondycja całego przedsięwzięcia</h2>
+          <p className="hint">
+            Ocena pokazuje, na ile przedsięwzięcie jest przygotowane nie tylko do dostarczenia rezultatów projektu,
+            ale również do ich skutecznego wdrożenia i wykorzystania w codziennej działalności organizacji.
+          </p>
+          <p className="hint">Progi robocze (nie są oficjalnymi progami Prosci): 10–19 = wymaga działania, 20–24 = wymaga uwagi, 25–30 = mocny obszar. Zawsze reaguj na najsłabszy z czterech wyników.</p>
+          <details style={{marginBottom:14}}>
+            <summary style={{cursor:"pointer", fontWeight:600}}>Przykłady działań dla poszczególnych obszarów</summary>
+            <table style={{marginTop:8}}>
+              <thead><tr><th>Obszar</th><th>Przykład wpisu</th></tr></thead>
+              <tbody>{PCT_AREAS.map(a => <tr key={a.key}><th style={{width:200}}>{a.label}</th><td>{a.example}</td></tr>)}</tbody>
+            </table>
+          </details>
+          {state.pctHistory.map((p, idx) => {
+            const rowWeakest = computeWeakestPctAreas(p);
+            return (
+              <div key={p.id} className="action-row">
+                <div className="grid cols4">
+                  <Field label="Data"><input type="date" value={p.data} onChange={e=>setPct(idx,"data",e.target.value)}/></Field>
+                  <Field label="Punkt kontrolny"><input type="text" value={p.punktKontrolny} onChange={e=>setPct(idx,"punktKontrolny",e.target.value)}/></Field>
+                  <Field label="Definicja sukcesu (1-30)"><input type="number" min="1" max="30" value={p.definicjaSukcesu} onChange={e=>setPct(idx,"definicjaSukcesu",e.target.value)}/></Field>
+                  <Field label="Przywództwo / sponsoring (1-30)"><input type="number" min="1" max="30" value={p.przywodztwo} onChange={e=>setPct(idx,"przywodztwo",e.target.value)}/></Field>
+                  <Field label="Zarządzanie projektem (1-30)"><input type="number" min="1" max="30" value={p.zarzadzanieProjektem} onChange={e=>setPct(idx,"zarzadzanieProjektem",e.target.value)}/></Field>
+                  <Field label="Zarządzanie zmianą (1-30)"><input type="number" min="1" max="30" value={p.zarzadzanieZmiana} onChange={e=>setPct(idx,"zarzadzanieZmiana",e.target.value)}/></Field>
                 </div>
-              )}
-              <div className="grid cols2" style={{marginTop:10}}>
-                <Field label="Działania usprawniające do kolejnego przeglądu"
-                  hint="Wpisz działania, które zostaną podjęte przed kolejnym przeglądem w celu poprawy najsłabiej ocenionego obszaru lub ograniczenia zidentyfikowanych ryzyk.">
-                  <input type="text" value={p.decyzja} onChange={e=>setPct(idx,"decyzja",e.target.value)}/>
-                </Field>
-                <Field label="Kolejny przegląd"><input type="date" value={p.kolejnyPrzeglad} onChange={e=>setPct(idx,"kolejnyPrzeglad",e.target.value)}/></Field>
+                {rowWeakest.length > 0 && (
+                  <div className="banner warn" style={{marginTop:10}}>
+                    <strong>Najsłabszy obszar: {rowWeakest.map(a=>a.label+" ("+a.value+"/30)").join(" i ")}</strong>
+                    {rowWeakest.map(a => <div key={a.key} style={{marginTop:4}}>{a.recommendation}</div>)}
+                  </div>
+                )}
+                <div className="grid cols2" style={{marginTop:10}}>
+                  <Field label="Działania usprawniające do kolejnego przeglądu"
+                    hint="Wpisz działania, które zostaną podjęte przed kolejnym przeglądem w celu poprawy najsłabiej ocenionego obszaru lub ograniczenia zidentyfikowanych ryzyk.">
+                    <input type="text" value={p.decyzja} onChange={e=>setPct(idx,"decyzja",e.target.value)}/>
+                  </Field>
+                  <Field label="Kolejny przegląd"><input type="date" value={p.kolejnyPrzeglad} onChange={e=>setPct(idx,"kolejnyPrzeglad",e.target.value)}/></Field>
+                </div>
               </div>
-            </div>
-          );
-        })}
-        <button className="small" onClick={addPctCheckpoint}>+ Kolejny pomiar</button>
-        <div className="banner info flex-between" style={{marginTop:14}}>
-          <div>Średnia ostatniego pomiaru: <strong>{pctAvg!=null ? pctAvg.toFixed(1) : "–"}</strong>{pctWeakestAreas.length ? (" · Najsłabszy obszar: " + pctWeakestAreas.map(a=>a.label).join(" i ")) : ""}</div>
-          <Badge tone={pctTone(pctAvg)}>{PCT_TONE_LABELS[pctTone(pctAvg)]}</Badge>
+            );
+          })}
+          <button className="small" onClick={addPctCheckpoint}>+ Kolejny pomiar</button>
+          <div className="banner info flex-between" style={{marginTop:14}}>
+            <div>Średnia ostatniego pomiaru: <strong>{pctAvg!=null ? pctAvg.toFixed(1) : "–"}</strong>{pctWeakestAreas.length ? (" · Najsłabszy obszar: " + pctWeakestAreas.map(a=>a.label).join(" i ")) : ""}</div>
+            <Badge tone={pctTone(pctAvg)}>{PCT_TONE_LABELS[pctTone(pctAvg)]}</Badge>
+          </div>
         </div>
-      </div>
+      )}
+      {!showPct && (
+        <div className="banner info">
+          Uproszczona ocena PCT dla średniej zmiany jest jeszcze w przygotowaniu — na razie diagnoza zaczyna się
+          od grup objętych zmianą.
+        </div>
+      )}
 
       <div className="card">
         <div className="flex-between">
-          <h2 style={{margin:0}}>2. Grupy objęte zmianą</h2>
+          <h2 style={{margin:0}}>{groupsStep}. Grupy objęte zmianą</h2>
           <button className="small" onClick={addGroup}>+ Dodaj grupę</button>
         </div>
         <p className="hint">Wpisz grupy osób, których charakter lub sposób pracy może ulec zmianie, i przypisz każdą do jednej z kategorii.</p>
@@ -1778,7 +1830,7 @@ function Diagnoza({state, pctLatest, pctAvg, pctWeakestAreas, setPct, addPctChec
           <div className="banner warn">
             {missingCategory>0 && <div>{missingCategory} grup(y) bez przypisanej kategorii.</div>}
             {missingWplyw>0 && <div>{missingWplyw} grup(y) z kategorią, ale bez wypełnionego pola „Co zmienia się w ich pracy?”.</div>}
-            Dopóki oba pola nie są uzupełnione, grupa nie trafi do diagnozy ADKAR ani do Planu działań.
+            Dopóki oba pola nie są uzupełnione, grupa nie trafi do diagnozy ADKAR, a zakładki <strong>Plan działań</strong> i <strong>Pulpit</strong> pozostaną ukryte.
           </div>
         )}
         <table>
@@ -1806,7 +1858,7 @@ function Diagnoza({state, pctLatest, pctAvg, pctWeakestAreas, setPct, addPctChec
       </div>
 
       <div className="card">
-        <h2>3. Ocena ADKAR dla każdej kategorii</h2>
+        <h2>{adkarStep}. Ocena ADKAR dla każdej kategorii</h2>
         <p className="hint">
           ADKAR ocenia, na ile każda kategoria jest gotowa na zmianę: <strong>Awareness</strong> (świadomość
           potrzeby zmiany), <strong>Desire</strong> (chęć wspierania i uczestnictwa), <strong>Knowledge</strong> (wiedza,
@@ -1867,7 +1919,7 @@ function Diagnoza({state, pctLatest, pctAvg, pctWeakestAreas, setPct, addPctChec
       </div>
 
       <div className="card">
-        <h2>4. ADKAR — szybki skan</h2>
+        <h2>{skanStep}. ADKAR — szybki skan</h2>
         <p className="hint">Liczy się automatycznie z ocen powyżej.</p>
         {adkarRollup.map(r => (
           <div key={r.id} style={{marginBottom:14}}>
@@ -2025,19 +2077,25 @@ function Przewodnik(){
     <div className="card">
       <h2>Jak pracować z PZZ</h2>
       <p className="hint">
-        Wszystko zaczyna się od zakładki <strong>Ankieta — skala zmiany</strong>. Dopóki nie odpowiesz na
-        wszystkie 13 pytań, narzędzie nie wie, jak duża jest zmiana, i nie pokazuje żadnej dalszej ścieżki.
-        Po ukończeniu ankiety pojawia się jedna z dwóch ścieżek — nigdy obie naraz:
+        Zacznij od wczytania karty projektu w zakładce <strong>Dane projektu</strong> — bez tabelki „Grupy objęte
+        zmianą”, tę wypełnisz później, w miejscu zależnym od skali zmiany. Potem przejdź do <strong>Ankiety
+        — skala zmiany</strong>. Dopóki nie odpowiesz na wszystkie 13 pytań, narzędzie nie wie, jak duża jest
+        zmiana, i nie pokazuje żadnej dalszej ścieżki. Po ukończeniu ankiety pojawia się jedna z trzech ścieżek:
       </p>
       <ul>
-        <li><strong>Poziom 1–2 (mała/średnia zmiana):</strong> zakładka „Checklisty” — krótka lista pytań, bez PCT i ADKAR.</li>
-        <li><strong>Poziom 3 (duża zmiana):</strong> zakładki „Diagnoza”, „Plan działań” i „Pulpit” — pełny PZZ z PCT i ADKAR.</li>
+        <li><strong>Poziom 1 (mała zmiana):</strong> zakładka „Checklisty” — krótkie pytania o sponsora. Grupy objęte zmianą wypełnij bezpośrednio w karcie projektu.</li>
+        <li><strong>Poziom 2 (średnia zmiana):</strong> „Checklisty” + „Diagnoza” (grupy i ADKAR, na razie bez pełnego PCT) + „Plan działań” + „Pulpit”. Grupy wypełnij tutaj, w Diagnozie — nie duplikuj tego w karcie.</li>
+        <li><strong>Poziom 3 (duża zmiana):</strong> „Diagnoza” (pełne PCT + ADKAR), „Plan działań” i „Pulpit”.</li>
       </ul>
+      <p className="hint">
+        „Plan działań” i „Pulpit” odblokowują się dopiero, gdy każda dodana grupa ma przypisaną kategorię
+        i wypełnione pole „Co zmienia się w ich pracy?” — dopóki tak nie jest, te zakładki są ukryte.
+      </p>
       <p className="hint">Jeśli w trakcie pracy okaże się, że zmiana jest inna niż na starcie, wróć do „Ankiety” i zmień odpowiedzi — ścieżka przełączy się automatycznie.</p>
-      <h3>Praca na pełnej ścieżce (poziom 3)</h3>
+      <h3>Praca w Diagnozie i Planie działań</h3>
       <ol>
-        <li><strong>Diagnoza:</strong> uzupełnij PCT, przypisz grupy do kategorii i wykonaj oceny ADKAR.</li>
-        <li><strong>Plan:</strong> wpisz działania (max {MAX_ACTIONS_PER_CATEGORY}/kategorię), sposób sprawdzenia gotowości i kanały komunikacji.</li>
+        <li><strong>Diagnoza:</strong> (dla dużej zmiany) uzupełnij PCT, przypisz grupy do kategorii i wykonaj oceny ADKAR.</li>
+        <li><strong>Plan:</strong> wpisz działania (max {MAX_ACTIONS_PER_CATEGORY}/kategorię), sposób sprawdzenia gotowości i zaznacz, czy działanie trafiło do harmonogramu projektu.</li>
         <li><strong>Pulpit:</strong> podczas przeglądu aktualizuj statusy działań i reaguj na blokady.</li>
       </ol>
 
@@ -2045,7 +2103,7 @@ function Przewodnik(){
       <ol>
         <li><strong>Łącz grupy w segmenty</strong> — rozdzielaj je dopiero, gdy różnią się przekazem, wsparciem, właścicielem lub terminem.</li>
         <li><strong>Projektuj rezultaty, nie listy dla grup</strong> — najpierw jeden wspólny rezultat i wszystkie objęte nim grupy; osobny wariant tylko przy różnym właścicielu, terminie, formie lub przekazie.</li>
-        <li><strong>Wymagaj powiązania z projektem</strong> — każde aktywne działanie przypisz do kamienia milowego, etapu albo pracy ciągłej (BAU), i jeśli możliwe — do zadania w Flexi.</li>
+        <li><strong>Wymagaj powiązania z projektem</strong> — każde aktywne działanie przypisz do kamienia milowego, etapu albo pracy ciągłej (BAU), i dodaj je do harmonogramu projektu (kluczowe działania też do FlexiProject).</li>
         <li><strong>Planuj krocząco</strong> — horyzont „teraz” opisuj szczegółowo, kolejne okresy utrzymuj ramowo.</li>
         <li><strong>Ogranicz pracę rozpoczętą</strong> — maksymalnie {MAX_WIP_ACTIONS} działań w statusie „W realizacji”. Pozostałe czekają jako „Do zaplanowania”.</li>
       </ol>
@@ -2053,6 +2111,7 @@ function Przewodnik(){
       <h3>Co jeszcze jest w toku (otwarte tematy z zespołu)</h3>
       <ul>
         <li>Checklisty dla poziomu 1 i 2 zmiany — w przygotowaniu (Martyna); obecna wersja w zakładce „Checklisty” to zaślepka.</li>
+        <li>Uproszczony PCT dla poziomu 2 (średnia zmiana) — jeszcze nie ma treści pytań, na razie Diagnoza dla poziomu 2 zaczyna się od grup.</li>
         <li>Kategoria „Klienci / studenci” — opcjonalna, do przetestowania na żywym projekcie.</li>
         <li>Nazewnictwo „menedżerowie liniowi” — do ostatecznego uzgodnienia z HR.</li>
       </ul>
