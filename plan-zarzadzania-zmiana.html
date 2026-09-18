@@ -310,7 +310,7 @@ function newProjectState(){
       nazwa:"", sponsor:"", pm:"", cm:"", typProjektu:"", okresRealizacji:"",
       terminPrzygotowania:"", czestotliwosc:"",
       nick:"", filie:"", zwiazekZeStrategia:"", celProjektu:"", powodyProjektu:"", glownaKorzysc:"", budzetRazem:"",
-      wylaczenia:"", zrodloFinansowania:"",
+      wylaczenia:"", zrodloFinansowania:"", kartaType:"", korzyscTermin:"", korzyscMiernik:"",
     },
     surveyAnswers: emptySurveyAnswers(),
     pctHistory: [
@@ -396,6 +396,53 @@ function cellText(node){
   return text.replace(/\s+/g, " ").trim();
 }
 
+// Autorzy szablonów zostawiają "puste" pola z placeholderem zamiast pustego akapitu — traktujemy
+// same kropki/myślniki i "n/d"/"brak" jak brak treści, żeby taki placeholder nie wylądował
+// w danych projektu (zgłoszony błąd: "Powody projektu" wchodziło jako samo "…").
+function isBlankish(text){
+  const t = (text || "").trim();
+  if (!t) return true;
+  if (/^[.…\-–—_]+$/.test(t)) return true;
+  if (/^(n\/?d\.?|brak)$/i.test(t)) return true;
+  return false;
+}
+// Numer porządkowy wiersza karty (Lp) w komórce obok etykiety — nie jest nigdy prawdziwą
+// wartością pola, tylko "17", "10" itp.
+function isLpLike(text){
+  return /^\d{1,3}$/.test((text||"").trim());
+}
+function isDateLike(text){
+  const t = (text||"").trim();
+  return /^\d{1,2}[.\/]\d{1,2}[.\/]\d{2,4}$/.test(t) || /^(Q[1-4]\s*)?20\d{2}$/i.test(t);
+}
+function parseAmount(text){
+  if (!text) return null;
+  const cleaned = String(text).replace(/zł/gi, "").replace(/[^\d,.\s]/g, "").trim();
+  if (!cleaned) return null;
+  const n = parseFloat(cleaned.replace(/\s+/g, "").replace(",", "."));
+  return isNaN(n) ? null : n;
+}
+function formatAmount(n){
+  return Math.round(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+}
+
+// Trzy warianty karty (uczelniana / projektu grupowego / programu) różnią się nie tylko
+// nazewnictwem pól, ale i tym, KTÓRE pola w ogóle istnieją (np. karta programu nie ma
+// Nick/symbolu ani tabeli zespołu, karta uczelniana nie ma Źródła finansowania — ma za to MPK).
+// Rozpoznajemy typ po charakterystycznych, unikalnych dla danego wzoru etykietach, żeby UI
+// mogło pokazywać "brak w tym szablonie" zamiast sugerować, że import czegoś nie wyłapał.
+function detectKartaType(tables){
+  // Sprawdzamy POJEDYNCZE komórki, nie cały wiersz — w wierszu z numerem porządkowym Lp
+  // ("1 | NAZWA PROJEKTU* | Wdrożenie...") tekst całego wiersza zaczyna się od "1", więc
+  // dopasowanie zakotwiczone znakiem ^ nigdy by się nie powiodło.
+  const hasCell = re => tables.some(t => Array.from(t.rows).some(r =>
+    Array.from(r.cells).some(c => re.test(cellText(c).replace(/\*/g, "").trim()))));
+  if (hasCell(/^NAZWA PROGRAMU/i)) return "program";
+  if (hasCell(/^MPK\b/i)) return "uczelnia";
+  if (hasCell(/^NAZWA PROJEKTU/i)) return "projekt";
+  return null;
+}
+
 function extractFields(tables){
   const fields = {};
   tables.forEach(table => {
@@ -409,31 +456,58 @@ function extractFields(tables){
           // Wartość to komórka TUŻ OBOK etykiety (i+1), nie zawsze ostatnia w wierszu — niektóre
           // szablony mieszczą dwie pary etykieta-wartość w jednym wierszu (np. "Nick/symbol | ... |
           // Nazwa we Flexi | ..."), gdzie branie zawsze ostatniej komórki podstawiłoby cudzą wartość.
-          // Sięgamy do kolejnego wiersza TYLKO gdy etykieta nie ma sąsiedniej komórki w ogóle (np.
-          // długi tekst opisowy pod nagłówkiem) — pusta-ale-istniejąca komórka obok etykiety oznacza
-          // po prostu niewypełnione pole i nie powinna być podmieniana wartością z innego wiersza.
+          // Sięgamy do kolejnego wiersza lub komórki PRZED etykietą TYLKO gdy etykieta nie ma
+          // sąsiedniej komórki w ogóle (np. długi tekst opisowy pod nagłówkiem) — pusta-ale-istniejąca
+          // komórka obok etykiety oznacza po prostu niewypełnione pole, nie powód szukać dalej.
           if (i < cells.length - 1){
             const value = cells[i + 1];
             if (value) fields[key] = value;
             return;
           }
+          // Niektóre szablony scalają komórki tak, że WARTOŚĆ ląduje PRZED etykietą w tym samym
+          // wierszu (np. "Wszystkie spółki korzystają... | CEL PROJEKTU*..."). Komórka po lewej
+          // liczy się jako wartość tylko gdy nie jest numerem porządkowym (Lp) ani placeholderem.
+          if (i > 0){
+            const left = cells[i - 1];
+            if (left && !isLpLike(left) && !isBlankish(left)){
+              fields[key] = left;
+              return;
+            }
+          }
+          // W pozostałych przypadkach etykieta zajmuje własny wiersz, a treść jest w kolejnym —
+          // bierzemy NAJDŁUŻSZĄ niepustą komórkę tego wiersza (nie zawsze ostatnią: część
+          // szablonów dokleja placeholder typu "…" na końcu wiersza z prawdziwą treścią z przodu).
           const nextRow = rows[r + 1];
           if (nextRow && nextRow.length){
-            const value = nextRow[nextRow.length - 1];
+            const candidates = nextRow.filter(c => !isBlankish(c));
+            const value = candidates.sort((a, b) => b.length - a.length)[0];
             if (value) fields[key] = value;
           }
         });
       }
     });
   });
-  // "Główna korzyść biznesowa" siedzi w osobnej mini-tabeli: wiersz nagłówka
-  // "KORZYŚĆ BIZNESOWA | KIEDY WYSTĄPI? | SUGEROWANY MIERNIK", wartość w kolejnym wierszu,
-  // pierwsza komórka — nie pasuje do schematu etykieta-w-tym-samym-lub-ostatniej-komórce powyżej.
+  // "Główna korzyść biznesowa" siedzi w osobnej mini-tabeli z nagłówkiem zawierającym m.in.
+  // "KORZYŚĆ BIZNESOWA", "KATEGORIA KORZYŚCI", "KIEDY WYSTĄPI?", "MIERNIK" — kolejność kolumn
+  // różni się między wzorami, a pusta komórka "kategoria" w wierszu danych potrafi przesunąć
+  // resztę wartości o jedną pozycję w lewo względem nagłówka. Zamiast liczyć na stałą pozycję
+  // kolumny, klasyfikujemy komórki wiersza danych po TREŚCI: pierwsza data-podobna to termin,
+  // pierwsza spośród pozostałych — korzyść, kolejna — miernik.
   tables.forEach(table => {
     const rows = Array.from(table.rows).map(row => Array.from(row.cells).map(cellText));
-    const idx = rows.findIndex(r => r[0] && /^KORZYŚĆ BIZNESOWA$/i.test(r[0].trim()));
-    if (idx !== -1 && rows[idx+1] && rows[idx+1][0] && !fields.glownaKorzysc){
-      fields.glownaKorzysc = rows[idx+1][0];
+    const headerIdx = rows.findIndex(r => r.some(c => /^KORZYŚĆ BIZNESOWA/i.test(c.replace(/\*/g, "").trim())));
+    if (headerIdx === -1 || fields.glownaKorzysc) return;
+    const dataRow = rows[headerIdx + 1];
+    if (!dataRow) return;
+    const nonBlank = dataRow.filter(c => !isBlankish(c));
+    if (!nonBlank.length) return;
+    const dateIdx = nonBlank.findIndex(isDateLike);
+    const kiedy = dateIdx !== -1 ? nonBlank[dateIdx] : "";
+    const rest = nonBlank.filter((c, i) => i !== dateIdx);
+    if (rest[0]){
+      fields.glownaKorzysc = rest[0];
+      if (kiedy) fields.korzyscTermin = kiedy;
+      if (rest[1]) fields.korzyscMiernik = rest[1];
     }
   });
   return fields;
@@ -667,6 +741,7 @@ function parseKartaHtml(html){
   const tables = Array.from(doc.querySelectorAll("table"));
   const team = [...extractTeam(tables), ...extractSporadicTeam(tables)];
   return {
+    kartaType: detectKartaType(tables),
     fields: extractFields(tables),
     groups: extractGroups(tables),
     milestones: extractMilestones(tables),
@@ -791,6 +866,15 @@ function App(){
   const pctAvg = pctNums.length ? (pctNums.reduce((a,b)=>a+b,0)/pctNums.length) : null;
   const pctWeakestAreas = computeWeakestPctAreas(pctLatest);
 
+  // Budżet razem: karty rzadko mają wypełniony wiersz "RAZEM" mimo poprawnie zaimportowanych
+  // pozycji budżetowych — zamiast prosić o ręczne przepisanie sumy, liczymy ją sami z pozycji.
+  // Wartość z karty (jeśli podana) i tak nadpisuje to pole przy imporcie, więc tu liczy się
+  // tylko jako wartość domyślna/obliczona.
+  const budzetRazemComputed = useMemo(()=>{
+    const nums = state.budgetItems.map(b => parseAmount(b.kwota)).filter(n => n != null);
+    return nums.length ? formatAmount(nums.reduce((a,b)=>a+b,0)) : null;
+  }, [state.budgetItems]);
+
   const adkarRollup = useMemo(()=>{
     const activeCats = CATEGORIES.concat(state.usesOptionalCategory ? [OPTIONAL_CATEGORY] : []);
     return ADKAR_DIMS.map(dim => {
@@ -866,7 +950,7 @@ function App(){
     setVersions(next);
     saveVersions(next);
   }
-  const EMPTY_KARTA_IMPORT = {fields:{}, groups:[], milestones:[], team:[], risks:[], deliverables:[], budgetItems:[], links:[], maintenanceCosts:[]};
+  const EMPTY_KARTA_IMPORT = {kartaType:null, fields:{}, groups:[], milestones:[], team:[], risks:[], deliverables:[], budgetItems:[], links:[], maintenanceCosts:[]};
 
   function handleKartaFile(file){
     const reader = new FileReader();
@@ -887,7 +971,8 @@ function App(){
   }
   function applyKartaFields(){
     if (!kartaImport) return;
-    setState(s => ({...s, project: {...s.project, ...kartaImport.fields}}));
+    const kartaType = kartaImport.kartaType || undefined;
+    setState(s => ({...s, project: {...s.project, ...kartaImport.fields, ...(kartaType ? {kartaType} : {})}}));
     // Po zastosowaniu te same wartości widać już w formularzu poniżej — zostawienie ich też w
     // tabeli podglądu to czysta duplikacja ("to jest do góry, to już jest do góry, to po co tu
     // drugi raz?"), więc czyścimy tylko `fields` z podglądu (reszta sekcji karty — grupy, kamienie
@@ -1027,7 +1112,10 @@ function App(){
     xlsLabelRow(wsDane, "Powody podjęcia projektu", state.project.powodyProjektu);
     xlsLabelRow(wsDane, "Cel projektu", state.project.celProjektu);
     xlsLabelRow(wsDane, "Główna korzyść biznesowa", state.project.glownaKorzysc);
+    xlsLabelRow(wsDane, "Termin wystąpienia korzyści", state.project.korzyscTermin);
+    xlsLabelRow(wsDane, "Miernik korzyści", state.project.korzyscMiernik);
     xlsLabelRow(wsDane, "Wyłączenia", state.project.wylaczenia);
+    xlsLabelRow(wsDane, "Typ karty (wykryty przy imporcie)", state.project.kartaType);
     wsDane.addRow([]);
     xlsLabelRow(wsDane, "Liczba punktów w ankiecie skali zmiany (patrz też arkusz „Ankieta”)", surveyTotal, true);
     xlsLabelRow(wsDane, "Poziom zmiany", level.complete ? (level.poziom + " — " + level.label) : "Ankieta nieukończona", true);
@@ -1166,7 +1254,9 @@ function App(){
           nick: val(dane,"Nick/symbol"), filie: val(dane,"Filie objęte"), budzetRazem: val(dane,"Budżet razem"),
           zrodloFinansowania: val(dane,"Źródło finansowania"), zwiazekZeStrategia: val(dane,"Związek ze strategią"),
           powodyProjektu: val(dane,"Powody podjęcia"), celProjektu: val(dane,"Cel projektu"),
-          glownaKorzysc: val(dane,"Główna korzyść"), wylaczenia: val(dane,"Wyłączenia"),
+          glownaKorzysc: val(dane,"Główna korzyść"), korzyscTermin: val(dane,"Termin wystąpienia korzyści"),
+          korzyscMiernik: val(dane,"Miernik korzyści"), wylaczenia: val(dane,"Wyłączenia"),
+          kartaType: val(dane,"Typ karty"),
         };
         const usesOptionalCategory = val(dane, "Kategoria „Klienci").toString().trim().toUpperCase() === "TAK";
 
@@ -1389,6 +1479,7 @@ function App(){
           onDismissKarta={dismissKartaImport}
           milestones={state.milestones} teamMembers={state.teamMembers} risks={state.risks}
           deliverables={state.deliverables} budgetItems={state.budgetItems} links={state.links} maintenanceCosts={state.maintenanceCosts}
+          budzetRazemComputed={budzetRazemComputed}
         />}
         {tab==="ankieta" && <Ankieta answers={state.surveyAnswers} setAnswer={setSurveyAnswer} total={surveyTotal} level={level}/>}
         {tab==="checklisty" && canSeeChecklist && <Checklisty level={level} checklist={state.checklist12} toggle={toggleChecklist}/>}
@@ -1452,6 +1543,7 @@ const KARTA_FIELD_LABELS = {
   okresRealizacji: "Okres realizacji", powodyProjektu: "Powody podjęcia projektu", celProjektu: "Cel projektu",
   glownaKorzysc: "Główna korzyść biznesowa", budzetRazem: "Budżet razem (brutto)",
   wylaczenia: "Wyłączenia", zrodloFinansowania: "Źródło finansowania",
+  korzyscTermin: "Termin wystąpienia korzyści", korzyscMiernik: "Miernik korzyści",
 };
 
 function KartaImportSection({title, count, previewPills, onApply, applyLabel}){
@@ -1468,8 +1560,26 @@ function KartaImportSection({title, count, previewPills, onApply, applyLabel}){
 function DaneProjektu({project, setField, kartaInputRef, onKartaFile, kartaImport,
   onApplyKartaFields, onApplyKartaGroups, onApplyKartaMilestones, onApplyKartaTeam, onApplyKartaRisks,
   onApplyKartaDeliverables, onApplyKartaBudgetItems, onApplyKartaLinks, onApplyKartaMaintenanceCosts, onApplyKartaAll,
-  onDismissKarta, milestones, teamMembers, risks, deliverables, budgetItems, links, maintenanceCosts}){
-  const hasReference = milestones.length>0 || teamMembers.length>0 || risks.length>0 || deliverables.length>0 || budgetItems.length>0 || links.length>0 || maintenanceCosts.length>0;
+  onDismissKarta, milestones, teamMembers, risks, deliverables, budgetItems, links, maintenanceCosts, budzetRazemComputed}){
+  const kartaType = project.kartaType;
+  // Budżet razem: karty rzadko mają wypełniony wiersz "RAZEM" — wartość z karty (gdy podana) nadpisuje
+  // wyliczoną sumę pozycji budżetowych, w przeciwnym razie pokazujemy sumę wyliczoną automatycznie.
+  const budzetRazemValue = (project.budzetRazem||"").trim() || budzetRazemComputed || "";
+  const budzetRazemNote = (project.budzetRazem||"").trim() ? "" : (budzetRazemComputed ? " (wyliczone automatycznie z pozycji budżetowych)" : "");
+  // Pola, których dany szablon karty nie zawiera (P1.5) — pokazujemy to wyraźnie zamiast pustego pola,
+  // żeby nie wyglądało na nieudany import. Karta uczelniana ma MPK/zlecenie zamiast źródła finansowania,
+  // karta programu nie ma pola Nick/symbol ani tabeli składu zespołu.
+  const extraFieldRows = [
+    {label:"Nick/symbol", value: project.nick, absent: kartaType==="program", absentNote:"karta programu nie zawiera pola Nick/symbol"},
+    {label:"Filie/podmioty objęte projektem", value: project.filie},
+    {label:"Budżet razem (brutto)", value: budzetRazemValue, note: budzetRazemNote},
+    {label:"Źródło finansowania", value: project.zrodloFinansowania, absent: kartaType==="uczelnia", absentNote:"karta uczelniana ma MPK/zlecenie zamiast źródła finansowania"},
+    {label:"Związek ze strategią", value: project.zwiazekZeStrategia},
+    {label:"Wyłączenia (czego projekt NIE obejmuje)", value: project.wylaczenia},
+    {label:"Termin wystąpienia korzyści", value: project.korzyscTermin},
+    {label:"Miernik korzyści", value: project.korzyscMiernik},
+  ].filter(r => (r.value && r.value.trim()) || r.absent);
+  const hasReference = milestones.length>0 || teamMembers.length>0 || risks.length>0 || deliverables.length>0 || budgetItems.length>0 || links.length>0 || maintenanceCosts.length>0 || extraFieldRows.length>0;
   return (
     <React.Fragment>
       <div className="card">
@@ -1574,24 +1684,42 @@ function DaneProjektu({project, setField, kartaInputRef, onKartaFile, kartaImpor
 
       <div className="card">
         <h2>Kontekst projektu</h2>
-        <p className="hint">Tło z karty projektu — pomaga formułować wnioski z diagnozy. Możesz swobodnie edytować.</p>
-        <div className="grid cols2">
-          <Field label="Nick/symbol"><input type="text" value={project.nick} onChange={e=>setField("nick", e.target.value)} placeholder="np. APR-USOS"/></Field>
-          <Field label="Filie objęte projektem"><input type="text" value={project.filie} onChange={e=>setField("filie", e.target.value)}/></Field>
-          <Field label="Budżet razem (brutto)"><input type="text" value={project.budzetRazem} onChange={e=>setField("budzetRazem", e.target.value)}/></Field>
-          <Field label="Źródło finansowania"><input type="text" value={project.zrodloFinansowania} onChange={e=>setField("zrodloFinansowania", e.target.value)}/></Field>
-        </div>
-        <Field label="Związek ze strategią"><textarea value={project.zwiazekZeStrategia} onChange={e=>setField("zwiazekZeStrategia", e.target.value)}/></Field>
+        <p className="hint">
+          Trzy pola, które realnie potrzebne są do diagnozy zmiany — po wczytaniu karty projektu zaciągają się
+          automatycznie, możesz je swobodnie doprecyzować. Pozostałe dane z karty (nick, filie, budżet, źródło
+          finansowania, związek ze strategią, wyłączenia) znajdziesz niżej, w bloku „Z karty projektu (referencyjnie)”.
+        </p>
         <Field label="Powody podjęcia projektu"><textarea value={project.powodyProjektu} onChange={e=>setField("powodyProjektu", e.target.value)}/></Field>
         <Field label="Cel projektu"><textarea value={project.celProjektu} onChange={e=>setField("celProjektu", e.target.value)}/></Field>
         <Field label="Główna korzyść biznesowa"><textarea value={project.glownaKorzysc} onChange={e=>setField("glownaKorzysc", e.target.value)}/></Field>
-        <Field label="Wyłączenia (czego projekt NIE obejmuje)"><textarea value={project.wylaczenia} onChange={e=>setField("wylaczenia", e.target.value)}/></Field>
       </div>
 
       {hasReference && (
         <div className="card">
           <h2>Z karty projektu (referencyjnie)</h2>
           <p className="hint">Kamienie milowe i osoby z zespołu podpowiadają się jako opcje w polach „Kamień milowy/etap” i „Odpowiedzialny” w Planie działań. Reszta to wgląd, bez wpływu na diagnozę czy plan.</p>
+          {extraFieldRows.length > 0 && (
+            <details open>
+              <summary style={{cursor:"pointer", fontWeight:600, marginBottom:8}}>Dodatkowe dane z karty</summary>
+              <table style={{marginBottom:14}}>
+                <tbody>
+                  {extraFieldRows.map(r => (
+                    <tr key={r.label}>
+                      <th style={{width:220}}>{r.label}</th>
+                      <td>
+                        {r.absent
+                          ? <span className="hint" style={{margin:0}}>brak w tym szablonie{r.absentNote ? " — "+r.absentNote : ""}</span>
+                          : <React.Fragment>{r.value}{r.note && <span className="hint" style={{margin:0}}>{r.note}</span>}</React.Fragment>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </details>
+          )}
+          {kartaType==="program" && teamMembers.length===0 && (
+            <p className="hint">Karta programu nie zawiera tabeli składu zespołu — to nie błąd importu.</p>
+          )}
           {milestones.length > 0 && (
             <details open>
               <summary style={{cursor:"pointer", fontWeight:600, marginBottom:8}}>Kamienie milowe ({milestones.length})</summary>
