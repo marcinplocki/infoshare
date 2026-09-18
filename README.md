@@ -11,18 +11,21 @@ bez serwera, wystarczy otworzyć `plan-zarzadzania-zmiana.html` w przeglądarce.
   zmianę do poziomu 1 (mała), 2 (średnia) lub 3 (duża).
 - **Checklisty (poziom 1–2)** — zaślepka dla uproszczonej ścieżki; docelową
   treść przygotowuje Martyna.
-- **Diagnoza** — kondycja PCT całego przedsięwzięcia oraz ocena ADKAR dla
-  4 stałych kategorii interesariuszy (+ opcjonalna 5. „Klienci/studenci”),
-  z automatycznym „szybkim skanem”.
-- **Plan działań** — zagregowany na poziomie kategorii, limit **2–3 działania
-  na kategorię**, bez gotowych podpowiedzi działań, kanały komunikacji i nr
-  zadania w Flexi wbudowane w wiersz działania.
+- **Diagnoza** — kondycja PCT całego przedsięwzięcia (poziom 3) oraz ocena
+  ADKAR dla 4 stałych kategorii interesariuszy (+ opcjonalna 5.
+  „Klienci/studenci”), z automatycznym „szybkim skanem”. Dostępna dla
+  poziomu 2 i 3 (dla poziomu 2 na razie bez sekcji PCT).
+- **Plan działań** — zagregowany na poziomie kategorii, limit **3 działania
+  na kategorię**, z przykładowymi działaniami podpowiadanymi automatycznie
+  po zidentyfikowaniu bariery ADKAR.
 - **Pulpit** — podsumowanie zarządcze: statusy działań, limit WIP, sygnały do
   decyzji.
 - **Przewodnik** — jak pracować z PZZ.
 
-Zapis wersji działa lokalnie w przeglądarce (localStorage), dostępny jest też
-eksport/import JSON oraz eksport do Excela (SheetJS).
+Zapis wersji działa lokalnie w przeglądarce (localStorage). Jedyny format
+pliku do zapisu/odczytu poza przeglądarką to Excel (eksport przyciskiem
+„Eksport Excel”, w pełni stylowany paletą marki Grupa Merito, wczytywany
+z powrotem przyciskiem „Wczytaj Excel”).
 
 ## Stan prac / otwarte tematy
 

@@ -223,6 +223,22 @@ function xlsLabelRow(ws, label, value, accent){
   return row;
 }
 
+// Czyta z powrotem listę wierszy zapisaną przez xlsSectionRow+xlsHeaderRow+xlsDataRow: znajduje
+// wiersz-tytuł sekcji (dokładne dopasowanie pierwszej komórki), pomija wiersz nagłówka kolumn
+// tuż pod nim, i zbiera kolejne wiersze aż do pierwszego pustego (separator sekcji) albo końca
+// arkusza. `mapper` dostaje surowy wiersz (tablicę komórek) i zwraca obiekt do stanu aplikacji.
+function xlsReadSection(rows, title, mapper){
+  const idx = rows.findIndex(r => (r[0]||"").toString().trim() === title);
+  if (idx === -1) return [];
+  const items = [];
+  for (let i = idx + 2; i < rows.length; i++){
+    const r = rows[i];
+    if (!r[0] && !r[1]) break;
+    items.push(mapper(r));
+  }
+  return items;
+}
+
 const SURVEY = {
   partI: [
     {id:"i1", q:"Ilu obszarów działalności dotyka zmiana?", hint:"1 – jeden obszar … 5 – praktycznie wszystkie obszary"},
@@ -739,7 +755,6 @@ function App(){
   const [showVersions, setShowVersions] = useState(false);
   const [toast, setToast] = useState(null);
   const [kartaImport, setKartaImport] = useState(null);
-  const fileInputRef = useRef(null);
   const excelInputRef = useRef(null);
   const kartaInputRef = useRef(null);
   const versionsDialogRef = useRef(null);
@@ -839,7 +854,7 @@ function App(){
     const ok = saveVersions(next);
     setToast(ok
       ? "Wersja zapisana: " + entry.name
-      : "Uwaga: przeglądarka zablokowała zapis na dysku — wersja jest widoczna tylko do zamknięcia karty. Użyj „Eksport JSON”, żeby jej nie stracić.");
+      : "Uwaga: przeglądarka zablokowała zapis na dysku — wersja jest widoczna tylko do zamknięcia karty. Użyj „Eksport Excel”, żeby jej nie stracić.");
   }
   function loadVersion(entry){
     setState(sanitizeProjectState(entry.data));
@@ -851,25 +866,6 @@ function App(){
     setVersions(next);
     saveVersions(next);
   }
-  function exportJson(){
-    const blob = new Blob([JSON.stringify(state, null, 2)], {type:"application/json"});
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url; a.download = (state.project.nazwa || "pzz") + ".json";
-    a.click(); URL.revokeObjectURL(url);
-  }
-  function importJson(file){
-    const reader = new FileReader();
-    reader.onload = () => {
-      try {
-        const data = JSON.parse(reader.result);
-        setState(sanitizeProjectState(data));
-        setToast("Wczytano plik: " + file.name);
-      } catch(e){ alert("Nie udało się wczytać pliku JSON."); }
-    };
-    reader.readAsText(file);
-  }
-
   const EMPTY_KARTA_IMPORT = {fields:{}, groups:[], milestones:[], team:[], risks:[], deliverables:[], budgetItems:[], links:[], maintenanceCosts:[]};
 
   function handleKartaFile(file){
@@ -1036,6 +1032,7 @@ function App(){
     xlsLabelRow(wsDane, "Liczba punktów w ankiecie skali zmiany (patrz też arkusz „Ankieta”)", surveyTotal, true);
     xlsLabelRow(wsDane, "Poziom zmiany", level.complete ? (level.poziom + " — " + level.label) : "Ankieta nieukończona", true);
     xlsLabelRow(wsDane, "Ocena ryzyka", level.risk);
+    xlsLabelRow(wsDane, "Kategoria „Klienci/studenci” włączona", state.usesOptionalCategory ? "TAK" : "NIE");
     wsDane.addRow([]);
     xlsSectionRow(wsDane, ["KAMIENIE MILOWE Z KARTY PROJEKTU"]);
     xlsHeaderRow(wsDane, ["Kamień milowy", "Termin"]);
@@ -1064,6 +1061,10 @@ function App(){
     xlsSectionRow(wsDane, ["KOSZTY UTRZYMANIA PO PROJEKCIE"]);
     xlsHeaderRow(wsDane, ["Rok", "Kategorie kosztów", "Kwota"]);
     state.maintenanceCosts.forEach(m => xlsDataRow(wsDane, [m.rok, m.kategorie, m.kwota], [3]));
+    wsDane.addRow([]);
+    xlsSectionRow(wsDane, ["CHECKLISTA (POZIOM 1-2)"]);
+    xlsHeaderRow(wsDane, ["ID", "Pytanie", "Zaznaczone"]);
+    CHECKLIST_ITEMS.forEach(i => xlsDataRow(wsDane, [i.key, i.text, state.checklist12[i.key] ? "TAK" : "NIE"]));
 
     const wsAnk = wb.addWorksheet("Ankieta");
     wsAnk.columns = [{width:16},{width:8},{width:70},{width:14}];
@@ -1137,8 +1138,8 @@ function App(){
   }
 
   // Wczytuje plik wyeksportowany przyciskiem "Eksport Excel" z powrotem do stanu aplikacji —
-  // żeby nie trzeba było zawsze trzymać osobno pliku JSON, żeby zapisać kolejną wersję (uwaga
-  // zespołu: "muszę ściągnąć zawsze tego jasona... Excel też by mógł być"). Rozpoznaje TYLKO
+  // to jedyny sposób zapisu/odczytu pliku w tym narzędziu (uwaga zespołu: "muszę ściągnąć zawsze
+  // tego jasona... Excel też by mógł być" — Excel jest znajomy, JSON nie). Rozpoznaje TYLKO
   // format wygenerowany przez "Eksport Excel" (te same nazwy arkuszy i nagłówki kolumn) —
   // dowolny inny plik .xlsx zostanie odrzucony z komunikatem, zamiast zgadywać układ.
   function importExcel(file){
@@ -1166,6 +1167,19 @@ function App(){
           powodyProjektu: val(dane,"Powody podjęcia"), celProjektu: val(dane,"Cel projektu"),
           glownaKorzysc: val(dane,"Główna korzyść"), wylaczenia: val(dane,"Wyłączenia"),
         };
+        const usesOptionalCategory = val(dane, "Kategoria „Klienci").toString().trim().toUpperCase() === "TAK";
+
+        const milestones = xlsReadSection(dane, "KAMIENIE MILOWE Z KARTY PROJEKTU", r => ({id:cryptoId(), nazwa:r[0]||"", termin:r[1]||""}));
+        const teamMembers = xlsReadSection(dane, "SKŁAD ZESPOŁU Z KARTY PROJEKTU", r => ({id:cryptoId(), imie:r[0]||"", dzial:r[1]||"", rola:r[2]||"", zaangazowanie:r[3]||""}));
+        const risks = xlsReadSection(dane, "KLUCZOWE RYZYKA Z KARTY PROJEKTU", r => ({id:cryptoId(), ryzyko:r[0]||"", zarzadzanie:r[1]||""}));
+        const deliverables = xlsReadSection(dane, "WYPRACOWANE PRODUKTY Z KARTY PROJEKTU", r => ({id:cryptoId(), produkt:r[0]||"", wartosc:r[1]||"", termin:r[2]||"", odbiorca:r[3]||""}));
+        const budgetItems = xlsReadSection(dane, "POZYCJE BUDŻETOWE Z KARTY PROJEKTU", r => ({id:cryptoId(), pozycja:r[0]||"", kwota:r[1]||""}));
+        const links = xlsReadSection(dane, "POWIĄZANIA Z INNYMI PROJEKTAMI", r => ({id:cryptoId(), projekt:r[0]||"", zaleznosc:r[1]||"", wspolpraca:r[2]||""}));
+        const maintenanceCosts = xlsReadSection(dane, "KOSZTY UTRZYMANIA PO PROJEKCIE", r => ({id:cryptoId(), rok:r[0]||"", kategorie:r[1]||"", kwota:r[2]||""}));
+        const checklist12 = {};
+        xlsReadSection(dane, "CHECKLISTA (POZIOM 1-2)", r => r).forEach(r => {
+          if (r[0]) checklist12[r[0]] = (r[2]||"").toString().trim().toUpperCase() === "TAK";
+        });
 
         const surveyAnswers = emptySurveyAnswers();
         ankieta.forEach(row => {
@@ -1225,7 +1239,10 @@ function App(){
           }
         }
 
-        setState(s => sanitizeProjectState({...s, project: {...s.project, ...project}, surveyAnswers, pctHistory, groups, adkarByCategory, actions}));
+        setState(s => sanitizeProjectState({
+          ...s, project: {...s.project, ...project}, surveyAnswers, pctHistory, groups, adkarByCategory, actions,
+          usesOptionalCategory, milestones, teamMembers, risks, deliverables, budgetItems, links, maintenanceCosts, checklist12,
+        }));
         setToast("Wczytano plik Excel: " + file.name);
       } catch(e){ alert("Nie udało się wczytać tego pliku — rozpoznawany jest tylko format z przycisku „Eksport Excel”."); }
     };
@@ -1335,11 +1352,7 @@ function App(){
         <div className="toolbar">
           <button className="ghost" onClick={()=>setShowVersions(true)}>Wersje ({versions.length})</button>
           <button className="ghost" onClick={()=>persistAsNewVersion(state.project.nazwa)}>Zapisz wersję</button>
-          <button className="ghost" onClick={exportJson}>Eksport JSON</button>
           <button className="primary" onClick={exportExcel}>Eksport Excel</button>
-          <input ref={fileInputRef} type="file" accept=".json" style={{display:"none"}}
-            onChange={e => { if(e.target.files[0]) importJson(e.target.files[0]); e.target.value=""; }} />
-          <button className="ghost" onClick={()=>fileInputRef.current.click()}>Wczytaj JSON</button>
           <input ref={excelInputRef} type="file" accept=".xlsx" style={{display:"none"}}
             onChange={e => { if(e.target.files[0]) importExcel(e.target.files[0]); e.target.value=""; }} />
           <button className="ghost" onClick={()=>excelInputRef.current.click()}>Wczytaj Excel</button>
@@ -1356,7 +1369,7 @@ function App(){
         {!storageOk && (
           <div className="banner warn">
             Ta przeglądarka blokuje lokalny zapis (localStorage) — np. tryb prywatny albo ustawienia bezpieczeństwa.
-            „Zapisz wersję” nie przetrwa zamknięcia karty. Używaj „Eksport JSON” / „Wczytaj JSON”, żeby nie stracić pracy.
+            „Zapisz wersję” nie przetrwa zamknięcia karty. Używaj „Eksport Excel” / „Wczytaj Excel”, żeby nie stracić pracy.
           </div>
         )}
         {tab==="dane" && <DaneProjektu project={state.project} setField={setProjectField}
