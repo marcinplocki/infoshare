@@ -176,6 +176,87 @@ function computeWeakestPctAreas(row){
   }).map(a => ({...a, value: worstVal}));
 }
 
+// Pytania do oceny PCT (poziom 3, pełna) — 6 pytań na obszar, odpowiedź w skali Likerta 1-5
+// (komponent <Likert>, ten sam co w Ankiecie). Konkretne, sprawdzalne fakty ("czy sponsor jest
+// wskazany z imienia i nazwiska?"), nie abstrakcyjne oceny dojrzałości — żeby PM bez wiedzy
+// o zarządzaniu zmianą wiedział, jak odpowiedzieć.
+const PCT_QUESTIONS = {
+  definicjaSukcesu: [
+    "Czy dla projektu określono cele, które da się jednoznacznie sprawdzić po jego zakończeniu?",
+    "Czy określono konkretne korzyści biznesowe, które projekt ma przynieść?",
+    "Czy dla korzyści biznesowych określono mierniki z wartościami docelowymi (liczba, %, termin)?",
+    "Czy sponsor potwierdził, że zgadza się z tak zdefiniowanymi celami i miernikami?",
+    "Czy w definicji sukcesu uwzględniono nie tylko dostarczenie produktów projektu, ale też ich faktyczne wykorzystanie po zakończeniu?",
+    "Czy osoby, których dotyczy zmiana, wiedzą, jak będzie wyglądał sukces tego projektu?",
+  ],
+  przywodztwo: [
+    "Czy sponsor projektu jest wskazany z imienia i nazwiska?",
+    "Czy sponsor osobiście komunikował potrzebę tej zmiany (spotkanie, mail, nagranie)?",
+    "Czy sponsor uczestniczył w podjęciu kluczowych decyzji dotyczących projektu w ciągu ostatnich 3 miesięcy?",
+    "Czy oprócz sponsora są inni menedżerowie/liderzy, którzy publicznie popierają tę zmianę?",
+    "Czy sponsor jest dostępny dla zespołu projektowego, gdy potrzebna jest jego decyzja lub interwencja?",
+    "Czy kierownictwo wyższego szczebla konsekwentnie przekazuje ten sam komunikat o zmianie (bez sprzecznych sygnałów)?",
+  ],
+  zarzadzanieProjektem: [
+    "Czy zakres projektu jest spisany i aktualny?",
+    "Czy istnieje aktualny harmonogram z konkretnymi terminami kamieni milowych?",
+    "Czy ryzyka projektu są spisane i każde ma przypisaną osobę odpowiedzialną?",
+    "Czy budżet projektu jest znany i śledzony na bieżąco (plan vs. wykonanie)?",
+    "Czy każdy członek zespołu projektowego wie, za co dokładnie odpowiada?",
+    "Czy postępy projektu są raportowane do sponsora co najmniej raz w miesiącu?",
+  ],
+  zarzadzanieZmiana: [
+    "Czy spisano listę grup/osób, których sposób pracy zmieni się w wyniku projektu?",
+    "Czy dla każdej z tych grup określono, na czym konkretnie polega zmiana w ich pracy?",
+    "Czy istnieje plan komunikacji do tych grup (co, kiedy i kto komunikuje)?",
+    "Czy zaplanowano konkretne szkolenia lub wsparcie potrzebne do pracy w nowy sposób?",
+    "Czy sprawdzono, u kogo można się spodziewać oporu wobec zmiany i co z tym zrobić?",
+    "Czy zaplanowano działania, które utrzymają nowy sposób pracy po zakończeniu projektu (np. kontrola po 3-6 miesiącach)?",
+  ],
+};
+
+// Szybka ocena (poziom 2) używa podzbioru 2 najbardziej rozstrzygających pytań na obszar z
+// powyższego zestawu — ten sam tekst, żeby nie dublować treści do utrzymania w dwóch miejscach.
+const QUICK_ASSESSMENT_QUESTION_INDEXES = {
+  definicjaSukcesu: [0, 2],
+  przywodztwo: [0, 1],
+  zarzadzanieProjektem: [0, 2],
+  zarzadzanieZmiana: [0, 2],
+};
+
+function emptyPctAnswers(){
+  const o = {};
+  PCT_AREAS.forEach(a => { o[a.key] = PCT_QUESTIONS[a.key].map(()=>null); });
+  return o;
+}
+function emptyQuickAnswers(){
+  const o = {};
+  PCT_AREAS.forEach(a => { o[a.key] = QUICK_ASSESSMENT_QUESTION_INDEXES[a.key].map(()=>null); });
+  return o;
+}
+// Wynik obszaru = suma odpowiedzi (1-5 każda), znormalizowana do skali 1-30 — tak samo dla pełnej
+// oceny (6 pytań x maks. 5 = 30, współczynnik 1) jak i szybkiej (2 pytania x maks. 5 = 10,
+// współczynnik 3). Dzięki temu obie oceny działają na wspólnej skali z tymi samymi progami
+// (pctTone), tą samą logiką najsłabszego obszaru (computeWeakestPctAreas) i tym samym wykresem
+// radarowym — bez przepisywania żadnego z nich. Wynik obszaru pojawia się dopiero, gdy WSZYSTKIE
+// jego pytania mają odpowiedź (tak jak dawniej pole liczbowe było puste albo wypełnione w całości).
+function pctAreaScore(answers, questionCount){
+  if (!answers || answers.length !== questionCount) return null;
+  if (answers.some(v => v == null || v === "")) return null;
+  const raw = answers.reduce((a,b)=>a+Number(b), 0);
+  return raw * (30 / (questionCount * 5));
+}
+function pctScores(row){
+  const scores = {};
+  PCT_AREAS.forEach(a => { scores[a.key] = pctAreaScore(row && row.answers && row.answers[a.key], PCT_QUESTIONS[a.key].length); });
+  return scores;
+}
+function quickScores(answers){
+  const scores = {};
+  PCT_AREAS.forEach(a => { scores[a.key] = pctAreaScore(answers && answers[a.key], QUICK_ASSESSMENT_QUESTION_INDEXES[a.key].length); });
+  return scores;
+}
+
 const STATUS_OPTIONS = ["Do zaplanowania","W realizacji","Do weryfikacji","Zablokowane","Zrealizowane"];
 
 /* ---------- Styl eksportu Excel (paleta marki Grupa Merito) ---------- */
@@ -314,8 +395,9 @@ function newProjectState(){
     },
     surveyAnswers: emptySurveyAnswers(),
     pctHistory: [
-      {id:cryptoId(), data:"", punktKontrolny:"Diagnoza wejściowa", definicjaSukcesu:"", przywodztwo:"", zarzadzanieProjektem:"", zarzadzanieZmiana:"", decyzja:"", kolejnyPrzeglad:""},
+      {id:cryptoId(), data:"", punktKontrolny:"Diagnoza wejściowa", decyzja:"", kolejnyPrzeglad:"", answers: emptyPctAnswers()},
     ],
+    quickAssessment: emptyQuickAnswers(),
     groups: [],
     adkarByCategory: emptyAdkarByCategory(),
     actions: [],
@@ -336,12 +418,50 @@ function cryptoId(){
   return Math.random().toString(36).slice(2,10) + Date.now().toString(36);
 }
 
+// Zapis/odczyt odpowiedzi Likerta do jednej komórki Excela jako lista po przecinku ("4,5,,2,3,1")
+// — pusta pozycja (nieodpowiedziane pytanie) zostaje pusta, nie znika, żeby indeksy pytań się nie
+// przesunęły przy odczycie.
+function serializeAnswers(arr){
+  return (arr||[]).map(v => v==null ? "" : v).join(",");
+}
+function deserializeAnswers(str, length){
+  const parts = (str==null ? "" : String(str)).split(",");
+  return Array.from({length}, (_,i) => {
+    const v = parts[i];
+    return (v===undefined || v==="") ? null : Number(v);
+  });
+}
+
+// Domyślne/starsze dane (localStorage sprzed v1.7, częściowy import Excela) mogą nie mieć
+// tablicy `answers` wcale albo mieć złą liczbę pytań (np. po zmianie zestawu pytań w kodzie) —
+// dopełniamy brakujące odpowiedzi do null-i zamiast dać się wysypać dalszym obliczeniom.
+function sanitizePctAnswers(raw){
+  const out = {};
+  PCT_AREAS.forEach(a => {
+    const n = PCT_QUESTIONS[a.key].length;
+    const src = raw && Array.isArray(raw[a.key]) ? raw[a.key] : [];
+    out[a.key] = Array.from({length:n}, (_,i) => src[i] ?? null);
+  });
+  return out;
+}
+function sanitizeQuickAnswers(raw){
+  const out = {};
+  PCT_AREAS.forEach(a => {
+    const n = QUICK_ASSESSMENT_QUESTION_INDEXES[a.key].length;
+    const src = raw && Array.isArray(raw[a.key]) ? raw[a.key] : [];
+    out[a.key] = Array.from({length:n}, (_,i) => src[i] ?? null);
+  });
+  return out;
+}
+
 function sanitizeProjectState(data){
   const base = newProjectState();
   if (!data || typeof data !== "object") return base;
   const project = (data.project && typeof data.project === "object") ? {...base.project, ...data.project} : base.project;
   const surveyAnswers = (data.surveyAnswers && typeof data.surveyAnswers === "object") ? {...base.surveyAnswers, ...data.surveyAnswers} : base.surveyAnswers;
-  const pctHistory = Array.isArray(data.pctHistory) && data.pctHistory.length ? data.pctHistory : base.pctHistory;
+  const pctHistoryRaw = Array.isArray(data.pctHistory) && data.pctHistory.length ? data.pctHistory : base.pctHistory;
+  const pctHistory = pctHistoryRaw.map(p => ({...p, answers: sanitizePctAnswers(p.answers)}));
+  const quickAssessment = sanitizeQuickAnswers(data.quickAssessment);
   const groups = Array.isArray(data.groups) ? data.groups : base.groups;
   const adkarByCategory = (data.adkarByCategory && typeof data.adkarByCategory === "object")
     ? {...base.adkarByCategory, ...data.adkarByCategory} : base.adkarByCategory;
@@ -356,7 +476,7 @@ function sanitizeProjectState(data){
   const maintenanceCosts = Array.isArray(data.maintenanceCosts) ? data.maintenanceCosts : base.maintenanceCosts;
   return {
     ...base, ...data,
-    project, surveyAnswers, pctHistory, groups, adkarByCategory, actions, checklist12, milestones, teamMembers, risks,
+    project, surveyAnswers, pctHistory, quickAssessment, groups, adkarByCategory, actions, checklist12, milestones, teamMembers, risks,
     deliverables, budgetItems, links, maintenanceCosts,
   };
 }
@@ -875,11 +995,28 @@ function App(){
 
   // Ostatni WYPEŁNIONY pomiar, nie ostatni wiersz tabeli — dodanie pustego "kolejnego pomiaru"
   // na przyszły przegląd nie może cofnąć pulpitu do "brak danych", skoro realny wynik już jest.
-  const PCT_FIELDS = ["definicjaSukcesu","przywodztwo","zarzadzanieProjektem","zarzadzanieZmiana"];
-  const pctLatest = [...state.pctHistory].reverse().find(p => PCT_FIELDS.some(k => p[k] !== "" && p[k] != null)) || {};
-  const pctNums = PCT_FIELDS.map(k => pctLatest[k]).filter(v => v !== "" && v != null).map(Number);
+  // Wynik per obszar to teraz suma odpowiedzi na pytania (pctScores), nie ręcznie wpisana liczba —
+  // computeWeakestPctAreas/pctTone dostają ten sam kształt danych {obszar: liczba|null} co dawniej,
+  // więc ich logika progów i remisów zostaje bez zmian.
+  const pctLatest = [...state.pctHistory].reverse().find(p => PCT_AREAS.some(a => pctScores(p)[a.key] != null)) || {};
+  const pctLatestScores = pctScores(pctLatest);
+  const pctNums = PCT_AREAS.map(a => pctLatestScores[a.key]).filter(v => v != null);
   const pctAvg = pctNums.length ? (pctNums.reduce((a,b)=>a+b,0)/pctNums.length) : null;
-  const pctWeakestAreas = computeWeakestPctAreas(pctLatest);
+  const pctWeakestAreas = computeWeakestPctAreas(pctLatestScores);
+
+  // Szybka ocena gotowości (poziom 2) — ta sama logika, znormalizowana do tej samej skali 1-30
+  // (patrz pctAreaScore), więc computeWeakestPctAreas/pctTone/wykres radarowy działają identycznie.
+  const quickScoresObj = useMemo(()=>quickScores(state.quickAssessment), [state.quickAssessment]);
+  const quickNums = PCT_AREAS.map(a => quickScoresObj[a.key]).filter(v => v != null);
+  const quickAvg = quickNums.length ? (quickNums.reduce((a,b)=>a+b,0)/quickNums.length) : null;
+  const quickWeakestAreas = computeWeakestPctAreas(quickScoresObj);
+
+  // Pulpit/eksport pokazują JEDNĄ kartę "gotowości przedsięwzięcia", której źródło zależy od
+  // poziomu zmiany — pełny PCT dla poziomu 3, szybka ocena dla poziomu 2 — bez nazywania szybkiej
+  // oceny "PCT" w interfejsie (zespół prosił o mniej żargonu).
+  const readinessAvg = level.poziom === 3 ? pctAvg : (level.poziom === 2 ? quickAvg : null);
+  const readinessWeakestAreas = level.poziom === 3 ? pctWeakestAreas : (level.poziom === 2 ? quickWeakestAreas : []);
+  const readinessLabel = level.poziom === 3 ? "PCT" : "Szybka ocena";
 
   // Budżet razem: karty rzadko mają wypełniony wiersz "RAZEM" mimo poprawnie zaimportowanych
   // pozycji budżetowych — zamiast prosić o ręczne przepisanie sumy, liczymy ją sami z pozycji.
@@ -1187,15 +1324,31 @@ function App(){
     xlsLabelRow(wsAnk, "Poziom zmiany", level.complete ? (level.poziom + " — " + level.label) : "Ankieta nieukończona", true);
 
     const wsDiag = wb.addWorksheet("Diagnoza");
-    wsDiag.columns = [{width:40},{width:45},{width:16},{width:16},{width:16},{width:16},{width:14},{width:45},{width:16}];
+    wsDiag.columns = [{width:40},{width:45},{width:16},{width:16},{width:16},{width:16},{width:14},{width:45},{width:16},{width:30},{width:30},{width:30},{width:30}];
     xlsSectionRow(wsDiag, ["PCT — KONDYCJA CAŁEGO PRZEDSIĘWZIĘCIA"]);
-    xlsHeaderRow(wsDiag, ["Data","Punkt kontrolny","Definicja sukcesu","Przywództwo/sponsoring","Zarządzanie projektem","Zarządzanie zmianą","Średnia PCT","Działania usprawniające do kolejnego przeglądu","Kolejny przegląd"]);
+    // Kolumny "Odpowiedzi — ..." to surowe odpowiedzi Likerta (1-5, po przecinku) na 6 pytań danego
+    // obszaru — potrzebne do odtworzenia pełnego formularza przy ponownym imporcie, nie tylko sumy.
+    xlsHeaderRow(wsDiag, ["Data","Punkt kontrolny","Definicja sukcesu","Przywództwo/sponsoring","Zarządzanie projektem","Zarządzanie zmianą","Średnia PCT","Działania usprawniające do kolejnego przeglądu","Kolejny przegląd","Odpowiedzi — definicja sukcesu (1-6)","Odpowiedzi — przywództwo (1-6)","Odpowiedzi — zarządzanie projektem (1-6)","Odpowiedzi — zarządzanie zmianą (1-6)"]);
     state.pctHistory.forEach(p => {
-      const nums = [p.definicjaSukcesu,p.przywodztwo,p.zarzadzanieProjektem,p.zarzadzanieZmiana].filter(v=>v!=="" && v!=null).map(Number);
+      const scores = pctScores(p);
+      const nums = PCT_AREAS.map(a => scores[a.key]).filter(v => v != null);
       const avg = nums.length ? (nums.reduce((a,b)=>a+b,0)/nums.length).toFixed(1) : "";
-      xlsDataRow(wsDiag, [p.data,p.punktKontrolny,p.definicjaSukcesu,p.przywodztwo,p.zarzadzanieProjektem,p.zarzadzanieZmiana,avg,p.decyzja,p.kolejnyPrzeglad], [7]);
+      xlsDataRow(wsDiag, [
+        p.data, p.punktKontrolny,
+        scores.definicjaSukcesu ?? "", scores.przywodztwo ?? "", scores.zarzadzanieProjektem ?? "", scores.zarzadzanieZmiana ?? "",
+        avg, p.decyzja, p.kolejnyPrzeglad,
+        serializeAnswers(p.answers.definicjaSukcesu), serializeAnswers(p.answers.przywodztwo),
+        serializeAnswers(p.answers.zarzadzanieProjektem), serializeAnswers(p.answers.zarzadzanieZmiana),
+      ], [7]);
     });
     xlsLabelRow(wsDiag, "Najsłabszy obszar (ostatni pomiar)", pctWeakestAreas.map(a=>a.label).join(" i ") || "");
+    wsDiag.addRow([]);
+    xlsSectionRow(wsDiag, ["SZYBKA OCENA GOTOWOŚCI PRZEDSIĘWZIĘCIA (POZIOM 2)"]);
+    xlsHeaderRow(wsDiag, ["Obszar","Wynik (1-30)","Odpowiedzi (1-2)"]);
+    PCT_AREAS.forEach(a => {
+      xlsDataRow(wsDiag, [a.label, quickScoresObj[a.key] ?? "", serializeAnswers(state.quickAssessment[a.key])], [2]);
+    });
+    xlsLabelRow(wsDiag, "Najsłabszy obszar (szybka ocena)", quickWeakestAreas.map(a=>a.label).join(" i ") || "");
     wsDiag.addRow([]);
     xlsSectionRow(wsDiag, ["GRUPY OBJĘTE ZMIANĄ"]);
     xlsHeaderRow(wsDiag, ["Grupa","Co zmienia się w ich pracy?","Kategoria"]);
@@ -1225,8 +1378,8 @@ function App(){
     wsPulpit.columns = [{width:45},{width:40}];
     xlsTitleRow(wsPulpit, ["PULPIT PZZ"]);
     xlsLabelRow(wsPulpit, "Skala zmiany", level.complete ? (surveyTotal + " pkt — poziom " + level.poziom + " (" + level.label + ")") : "Ankieta nieukończona", true);
-    xlsLabelRow(wsPulpit, "PCT — średnia ostatniego pomiaru", pctAvg!=null?pctAvg.toFixed(1):"", true);
-    xlsLabelRow(wsPulpit, "PCT — najsłabszy obszar", pctWeakestAreas.map(a=>a.label).join(" i ") || "");
+    xlsLabelRow(wsPulpit, readinessLabel + " — średnia ostatniego pomiaru", readinessAvg!=null?readinessAvg.toFixed(1):"", true);
+    xlsLabelRow(wsPulpit, readinessLabel + " — najsłabszy obszar", readinessWeakestAreas.map(a=>a.label).join(" i ") || "");
     wsPulpit.addRow([]);
     xlsLabelRow(wsPulpit, "Wszystkie działania", statusCounts.all);
     STATUS_OPTIONS.forEach(s => xlsLabelRow(wsPulpit, s, statusCounts[s]));
@@ -1310,9 +1463,23 @@ function App(){
             const r = diag[i];
             if (!label(r) && !r[1]) break;
             if (label(r).startsWith("Najsłabszy obszar")) break;
-            pctHistory.push({id:cryptoId(), data:r[0]||"", punktKontrolny:r[1]||"", definicjaSukcesu:r[2]??"", przywodztwo:r[3]??"", zarzadzanieProjektem:r[4]??"", zarzadzanieZmiana:r[5]??"", decyzja:r[7]||"", kolejnyPrzeglad:r[8]||""});
+            pctHistory.push({
+              id:cryptoId(), data:r[0]||"", punktKontrolny:r[1]||"", decyzja:r[7]||"", kolejnyPrzeglad:r[8]||"",
+              answers: {
+                definicjaSukcesu: deserializeAnswers(r[9], PCT_QUESTIONS.definicjaSukcesu.length),
+                przywodztwo: deserializeAnswers(r[10], PCT_QUESTIONS.przywodztwo.length),
+                zarzadzanieProjektem: deserializeAnswers(r[11], PCT_QUESTIONS.zarzadzanieProjektem.length),
+                zarzadzanieZmiana: deserializeAnswers(r[12], PCT_QUESTIONS.zarzadzanieZmiana.length),
+              },
+            });
           }
         }
+        const quickAssessment = emptyQuickAnswers();
+        xlsReadSection(diag, "SZYBKA OCENA GOTOWOŚCI PRZEDSIĘWZIĘCIA (POZIOM 2)", r => r).forEach(r => {
+          const area = PCT_AREAS.find(a => a.label === (r[0]||"").toString().trim());
+          if (!area) return;
+          quickAssessment[area.key] = deserializeAnswers(r[2], QUICK_ASSESSMENT_QUESTION_INDEXES[area.key].length);
+        });
         const groups = [];
         if (groupsHeaderIdx !== -1){
           for (let i = groupsHeaderIdx+1; i < diag.length; i++){
@@ -1351,7 +1518,7 @@ function App(){
         }
 
         setState(s => sanitizeProjectState({
-          ...s, project: {...s.project, ...project}, surveyAnswers, pctHistory, groups, adkarByCategory, actions,
+          ...s, project: {...s.project, ...project}, surveyAnswers, pctHistory, quickAssessment, groups, adkarByCategory, actions,
           usesOptionalCategory, milestones, teamMembers, risks, deliverables, budgetItems, links, maintenanceCosts, checklist12,
         }));
         setToast("Wczytano plik: " + file.name);
@@ -1375,8 +1542,20 @@ function App(){
       return {...s, pctHistory: hist};
     });
   }
+  function setPctAnswer(idx, areaKey, qIndex, value){
+    setState(s => {
+      const hist = s.pctHistory.slice();
+      const row = hist[idx];
+      const answers = {...row.answers, [areaKey]: row.answers[areaKey].map((v,i)=> i===qIndex ? value : v)};
+      hist[idx] = {...row, answers};
+      return {...s, pctHistory: hist};
+    });
+  }
   function addPctCheckpoint(){
-    setState(s => ({...s, pctHistory: [...s.pctHistory, {id:cryptoId(), data:"", punktKontrolny:"", definicjaSukcesu:"", przywodztwo:"", zarzadzanieProjektem:"", zarzadzanieZmiana:"", decyzja:"", kolejnyPrzeglad:""}]}));
+    setState(s => ({...s, pctHistory: [...s.pctHistory, {id:cryptoId(), data:"", punktKontrolny:"", decyzja:"", kolejnyPrzeglad:"", answers: emptyPctAnswers()}]}));
+  }
+  function setQuickAnswer(areaKey, qIndex, value){
+    setState(s => ({...s, quickAssessment: {...s.quickAssessment, [areaKey]: s.quickAssessment[areaKey].map((v,i)=> i===qIndex ? value : v)}}));
   }
   function addGroup(){
     setState(s => ({...s, groups: [...s.groups, {id:cryptoId(), nazwa:"", wplyw:"", categoryId: ""}]}));
@@ -1411,15 +1590,14 @@ function App(){
   }
 
   // Poziom 1 (mała zmiana) dostaje tylko checklistę — grupy i reszta zostają w karcie projektu.
-  // Poziom 2 (średnia) dostaje checklistę I Diagnozę/Plan/Pulpit, ale na razie bez sekcji PCT
-  // (uproszczony PCT dla poziomu 2 to osobny content, którego jeszcze nie mamy — do czasu jego
-  // powstania Diagnoza dla poziomu 2 zaczyna się od Grup objętych zmianą).
-  // Poziom 3 (duża) dostaje wszystko, łącznie z pełnym PCT.
+  // Poziom 2 (średnia) dostaje checklistę I Diagnozę/Plan/Pulpit, z krótką "Szybką oceną
+  // gotowości" zamiast pełnego PCT. Poziom 3 (duża) dostaje wszystko, łącznie z pełnym PCT.
   // Obie flagi liczone raz i używane też przy renderze w <main> — żeby warunek nie rozjechał
   // się między tabsDef i renderem (tak jak się rozjechał, zanim ta flaga istniała).
   const canSeeChecklist = level.complete && level.poziom < 3;
   const canSeeDiagnoza = level.complete && level.poziom >= 2;
   const canSeePct = level.complete && level.poziom === 3;
+  const canSeeQuick = level.complete && level.poziom === 2;
   // Twarda blokada (nie tylko ostrzeżenie): dopóki jakaś grupa ma kategorię, ale brakuje jej
   // opisu "Co zmienia się w ich pracy?" (albo brakuje kategorii), Plan działań i Pulpit są
   // niedostępne — wymuszamy uzupełnienie diagnozy, zanim będzie można przejść dalej.
@@ -1504,9 +1682,11 @@ function App(){
         {tab==="ankieta" && <Ankieta answers={state.surveyAnswers} setAnswer={setSurveyAnswer} total={surveyTotal} level={level}/>}
         {tab==="checklisty" && canSeeChecklist && <Checklisty level={level} checklist={state.checklist12} toggle={toggleChecklist}/>}
         {tab==="diagnoza" && canSeeDiagnoza && <Diagnoza
-          state={state} pctLatest={pctLatest} pctAvg={pctAvg} pctWeakestAreas={pctWeakestAreas}
-          showPct={canSeePct} hasIncompleteGroups={hasIncompleteGroups}
-          setPct={setPct} addPctCheckpoint={addPctCheckpoint}
+          state={state} pctAvg={pctAvg} pctWeakestAreas={pctWeakestAreas} pctLatestScores={pctLatestScores}
+          showPct={canSeePct} setPct={setPct} setPctAnswer={setPctAnswer} addPctCheckpoint={addPctCheckpoint}
+          showQuick={canSeeQuick} quickScoresObj={quickScoresObj} quickAvg={quickAvg} quickWeakestAreas={quickWeakestAreas}
+          setQuickAnswer={setQuickAnswer}
+          hasIncompleteGroups={hasIncompleteGroups}
           addGroup={addGroup} updateGroup={updateGroup} removeGroup={removeGroup}
           setAdkar={setAdkar} categoryBarrier={categoryBarrier} adkarRollup={adkarRollup}
           usesOptionalCategory={state.usesOptionalCategory} enableOptionalCategory={enableOptionalCategory}
@@ -1520,7 +1700,8 @@ function App(){
         />}
         {tab==="pulpit" && canSeePlanPulpit && <Pulpit
           project={state.project} level={level} surveyTotal={surveyTotal}
-          pctAvg={pctAvg} pctWeakestAreas={pctWeakestAreas} statusCounts={statusCounts} signals={signals}
+          readinessAvg={readinessAvg} readinessWeakestAreas={readinessWeakestAreas} readinessLabel={readinessLabel}
+          statusCounts={statusCounts} signals={signals}
           goTo={setTab}
         />}
         {tab==="przewodnik" && <Przewodnik/>}
@@ -1885,7 +2066,7 @@ function Checklisty({level, checklist, toggle}){
         Ten projekt kwalifikuje się do uproszczonej ścieżki — <strong>Poziom {level.poziom} ({level.label})</strong>.
         {level.poziom === 1
           ? " Pełny Plan Zarządzania Zmianą (Diagnoza z PCT i ADKAR + Plan działań) jest przeznaczony dla średnich i dużych zmian (poziom 2–3) i dla tego projektu nie jest pokazywany — grupy objęte zmianą wypełnij bezpośrednio w karcie projektu."
-          : " Oprócz tej checklisty masz też dostęp do zakładek „Diagnoza” i „Plan działań” (na razie bez pełnego PCT — to dla poziomu 2 jeszcze w przygotowaniu)."}
+          : " Oprócz tej checklisty masz też dostęp do zakładek „Diagnoza” (szybka ocena gotowości + ADKAR) i „Plan działań”."}
         {" "}Jeśli w trakcie pracy okaże się, że zmiana jest inna niż wskazała ankieta, wróć do zakładki „Ankieta” i popraw odpowiedzi.
       </div>
       <h2>Checklista — poziom {level.poziom}</h2>
@@ -1912,14 +2093,87 @@ function Checklisty({level, checklist, toggle}){
   );
 }
 
-function Diagnoza({state, pctLatest, pctAvg, pctWeakestAreas, showPct, hasIncompleteGroups, setPct, addPctCheckpoint, addGroup, updateGroup, removeGroup, setAdkar, categoryBarrier, adkarRollup, usesOptionalCategory, enableOptionalCategory}){
+// Wykres radarowy (pajęczyna) na 4 osiach zamiast klasycznego trójkąta PCT z dorzuconym czwartym
+// wierzchołkiem — trójkąt ma sens tylko dla trzech wierzchołków (dorzucenie czwartego jako węzła
+// centralnego zniekształca kształt znany z materiałów Prosci), a radar naturalnie traktuje
+// wszystkie 4 obszary jako równoważne osie i skaluje się identycznie do pełnej oceny (6
+// pytań/obszar) i szybkiej (2 pytania/obszar), bo obie są znormalizowane do wspólnej skali 1-30
+// (patrz pctAreaScore). `scores` to obiekt {obszar: liczba|null} — dokładnie to, co zwraca
+// pctScores/quickScores i co dostaje computeWeakestPctAreas, więc wykres zawsze pokazuje to samo,
+// co baner tekstowy nad/pod nim.
+function PctRadarChart({scores, weakestKeys}){
+  const size = 400, center = size/2, radius = 95, labelR = radius + 50;
+  const n = PCT_AREAS.length;
+  const angleFor = i => (-90 + i * (360/n)) * Math.PI/180;
+  const pointAt = (i, value) => {
+    const a = angleFor(i);
+    const r = (Math.max(0, Math.min(30, value)) / 30) * radius;
+    return [center + r*Math.cos(a), center + r*Math.sin(a)];
+  };
+  const vertexAt = i => pointAt(i, 30);
+  const dataPoints = PCT_AREAS.map((a,i) => pointAt(i, scores[a.key] ?? 0));
+  const pathD = dataPoints.map((p,i) => (i===0?"M":"L")+p[0].toFixed(1)+","+p[1].toFixed(1)).join(" ") + " Z";
+  const allScored = PCT_AREAS.every(a => scores[a.key] != null);
+  const anyScored = PCT_AREAS.some(a => scores[a.key] != null);
+  return (
+    <div>
+      <svg viewBox={"0 0 "+size+" "+size} style={{width:"100%", maxWidth:400, display:"block", margin:"0 auto"}}>
+        {[10,20,30].map(lvl => {
+          const pts = PCT_AREAS.map((a,i) => pointAt(i, lvl).join(",")).join(" ");
+          return <polygon key={lvl} points={pts} fill="none" stroke="#BABDCC" strokeWidth="1"/>;
+        })}
+        {PCT_AREAS.map((a,i) => {
+          const [x,y] = vertexAt(i);
+          return <line key={a.key} x1={center} y1={center} x2={x} y2={y} stroke="#BABDCC" strokeWidth="1"/>;
+        })}
+        <path d={pathD} fill="#EAF1FE" fillOpacity="0.85" stroke="#006EFA" strokeWidth="2"
+          strokeDasharray={allScored ? "none" : "5 4"}/>
+        {PCT_AREAS.map((a,i) => {
+          const [x,y] = dataPoints[i];
+          const v = scores[a.key];
+          const isWeakest = weakestKeys.includes(a.key);
+          return (
+            <circle key={a.key} cx={x} cy={y} r={isWeakest ? 7 : 4.5}
+              fill={v==null ? "#fff" : (isWeakest ? "#D64545" : "#006EFA")}
+              stroke={v==null ? "#BABDCC" : "#141E50"} strokeWidth={v==null ? 1 : 1.5}/>
+          );
+        })}
+        {PCT_AREAS.map((a,i) => {
+          const angle = angleFor(i);
+          const lx = center + labelR*Math.cos(angle), ly = center + labelR*Math.sin(angle);
+          // Każda etykieta obszaru ma dokładnie dwa słowa — łamiemy PO KAŻDYM słowie (nie tylko
+          // przy "/"), żeby wąskie osie lewa/prawa (kąt 0/180) nie wypychały tekstu poza viewBox.
+          const lines = a.label.replace(" / ", " ").split(" ");
+          const isWeakest = weakestKeys.includes(a.key);
+          const v = scores[a.key];
+          return (
+            <text key={a.key} x={lx} y={ly} textAnchor="middle" dominantBaseline="middle"
+              fontSize="11" fontWeight={isWeakest ? 700 : 500} fill={isWeakest ? "#D64545" : "#141E50"}>
+              {lines.map((line,li) => (
+                <tspan key={li} x={lx} dy={li===0 ? (lines.length>1 ? -6 : 0) : 13}>{line}</tspan>
+              ))}
+              <tspan x={lx} dy={14} fontSize="10" fontWeight={400} fill="#4A5278">{v!=null ? "("+Math.round(v)+"/30)" : "brak danych"}</tspan>
+            </text>
+          );
+        })}
+      </svg>
+      {!allScored && (
+        <p className="hint" style={{textAlign:"center"}}>
+          {anyScored ? "Uzupełnij pytania każdego obszaru, aby wykres pokazał pełny wynik." : "Odpowiedz na pytania poniżej, aby zobaczyć wynik na wykresie."}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function Diagnoza({state, pctAvg, pctWeakestAreas, pctLatestScores, showPct, setPct, setPctAnswer, addPctCheckpoint, showQuick, quickScoresObj, quickAvg, quickWeakestAreas, setQuickAnswer, hasIncompleteGroups, addGroup, updateGroup, removeGroup, setAdkar, categoryBarrier, adkarRollup, usesOptionalCategory, enableOptionalCategory}){
   const activeCategories = CATEGORIES.concat(usesOptionalCategory ? [OPTIONAL_CATEGORY] : []);
   const missingCategory = state.groups.filter(g => !g.categoryId).length;
   const missingWplyw = state.groups.filter(g => g.categoryId && !(g.wplyw||"").trim()).length;
-  // Numeracja sekcji liczona dynamicznie — dla średniej zmiany sekcja PCT jest ukryta (uproszczony
-  // PCT to jeszcze nieistniejący content), więc "Grupy" muszą zostać krokiem 1, nie 2.
+  // Numeracja sekcji liczona dynamicznie — pełna ocena (poziom 3) i szybka ocena (poziom 2)
+  // dzielą ten sam numer kroku 1, bo dla danego projektu widoczna jest tylko jedna z nich.
   let step = 0;
-  const pctStep = showPct ? ++step : null;
+  const assessmentStep = (showPct || showQuick) ? ++step : null;
   const groupsStep = ++step;
   const adkarStep = ++step;
   const skanStep = ++step;
@@ -1927,10 +2181,11 @@ function Diagnoza({state, pctLatest, pctAvg, pctWeakestAreas, showPct, hasIncomp
     <React.Fragment>
       {showPct && (
         <div className="card">
-          <h2>{pctStep}. PCT — kondycja całego przedsięwzięcia</h2>
+          <h2>{assessmentStep}. PCT — kondycja całego przedsięwzięcia</h2>
           <p className="hint">
             Ocena pokazuje, na ile przedsięwzięcie jest przygotowane nie tylko do dostarczenia rezultatów projektu,
-            ale również do ich skutecznego wdrożenia i wykorzystania w codziennej działalności organizacji.
+            ale również do ich skutecznego wdrożenia i wykorzystania w codziennej działalności organizacji. Na każde
+            pytanie odpowiadasz w skali 1–5 — wynik obszaru (1–30) liczy się sam z sześciu odpowiedzi.
           </p>
           <p className="hint">Progi robocze (nie są oficjalnymi progami Prosci): 10–19 = wymaga działania, 20–24 = wymaga uwagi, 25–30 = mocny obszar. Zawsze reaguj na najsłabszy z czterech wyników.</p>
           <details style={{marginBottom:14}}>
@@ -1941,17 +2196,33 @@ function Diagnoza({state, pctLatest, pctAvg, pctWeakestAreas, showPct, hasIncomp
             </table>
           </details>
           {state.pctHistory.map((p, idx) => {
-            const rowWeakest = computeWeakestPctAreas(p);
+            const rowScores = pctScores(p);
+            const rowWeakest = computeWeakestPctAreas(rowScores);
+            const isLast = idx === state.pctHistory.length - 1;
             return (
-              <div key={p.id} className="action-row">
-                <div className="grid cols4">
+              <details key={p.id} className="action-row" open={isLast} style={{marginBottom:14}}>
+                <summary style={{cursor:"pointer", fontWeight:600, marginBottom:8}}>
+                  {p.punktKontrolny || ("Pomiar " + (idx+1))}{p.data ? " — " + p.data : ""}
+                  {PCT_AREAS.some(a => rowScores[a.key]!=null) && (" · " + PCT_AREAS.map(a => a.label + " " + (rowScores[a.key]!=null ? rowScores[a.key]+"/30" : "–")).join(", "))}
+                </summary>
+                <div className="grid cols2" style={{marginBottom:14}}>
                   <Field label="Data"><input type="date" value={p.data} onChange={e=>setPct(idx,"data",e.target.value)}/></Field>
                   <Field label="Punkt kontrolny"><input type="text" value={p.punktKontrolny} onChange={e=>setPct(idx,"punktKontrolny",e.target.value)}/></Field>
-                  <Field label="Definicja sukcesu (1-30)"><input type="number" min="1" max="30" value={p.definicjaSukcesu} onChange={e=>setPct(idx,"definicjaSukcesu",e.target.value)}/></Field>
-                  <Field label="Przywództwo / sponsoring (1-30)"><input type="number" min="1" max="30" value={p.przywodztwo} onChange={e=>setPct(idx,"przywodztwo",e.target.value)}/></Field>
-                  <Field label="Zarządzanie projektem (1-30)"><input type="number" min="1" max="30" value={p.zarzadzanieProjektem} onChange={e=>setPct(idx,"zarzadzanieProjektem",e.target.value)}/></Field>
-                  <Field label="Zarządzanie zmianą (1-30)"><input type="number" min="1" max="30" value={p.zarzadzanieZmiana} onChange={e=>setPct(idx,"zarzadzanieZmiana",e.target.value)}/></Field>
                 </div>
+                {PCT_AREAS.map(a => (
+                  <div key={a.key} style={{marginBottom:16}}>
+                    <div className="flex-between" style={{marginBottom:6}}>
+                      <h4 style={{margin:0}}>{a.label}</h4>
+                      {rowScores[a.key]!=null && <Badge tone={pctTone(rowScores[a.key])}>{rowScores[a.key]}/30</Badge>}
+                    </div>
+                    {PCT_QUESTIONS[a.key].map((q, qi) => (
+                      <div key={qi} className="flex-between" style={{marginBottom:8}}>
+                        <div style={{maxWidth:520}}>{q}</div>
+                        <Likert value={p.answers[a.key][qi]} onChange={v=>setPctAnswer(idx, a.key, qi, v)}/>
+                      </div>
+                    ))}
+                  </div>
+                ))}
                 {rowWeakest.length > 0 && (
                   <div className="banner warn" style={{marginTop:10}}>
                     <strong>Najsłabszy obszar: {rowWeakest.map(a=>a.label+" ("+a.value+"/30)").join(" i ")}</strong>
@@ -1965,20 +2236,50 @@ function Diagnoza({state, pctLatest, pctAvg, pctWeakestAreas, showPct, hasIncomp
                   </Field>
                   <Field label="Kolejny przegląd"><input type="date" value={p.kolejnyPrzeglad} onChange={e=>setPct(idx,"kolejnyPrzeglad",e.target.value)}/></Field>
                 </div>
-              </div>
+              </details>
             );
           })}
           <button className="small" onClick={addPctCheckpoint}>+ Kolejny pomiar</button>
+          <PctRadarChart scores={pctLatestScores} weakestKeys={pctWeakestAreas.map(a=>a.key)}/>
           <div className="banner info flex-between" style={{marginTop:14}}>
             <div>Średnia ostatniego pomiaru: <strong>{pctAvg!=null ? pctAvg.toFixed(1) : "–"}</strong>{pctWeakestAreas.length ? (" · Najsłabszy obszar: " + pctWeakestAreas.map(a=>a.label).join(" i ")) : ""}</div>
             <Badge tone={pctTone(pctAvg)}>{PCT_TONE_LABELS[pctTone(pctAvg)]}</Badge>
           </div>
         </div>
       )}
-      {!showPct && (
-        <div className="banner info">
-          Uproszczona ocena PCT dla średniej zmiany jest jeszcze w przygotowaniu — na razie diagnoza zaczyna się
-          od grup objętych zmianą.
+      {showQuick && (
+        <div className="card">
+          <h2>{assessmentStep}. Szybka ocena gotowości przedsięwzięcia</h2>
+          <p className="hint">
+            Skrócony zestaw pytań (2 na obszar zamiast 6) — pokazuje, czy przedsięwzięcie jest gotowe nie tylko do
+            dostarczenia rezultatów projektu, ale też do ich skutecznego wykorzystania w codziennej pracy. Na każde
+            pytanie odpowiadasz w skali 1–5.
+          </p>
+          {PCT_AREAS.map(a => (
+            <div key={a.key} style={{marginBottom:16}}>
+              <div className="flex-between" style={{marginBottom:6}}>
+                <h4 style={{margin:0}}>{a.label}</h4>
+                {quickScoresObj[a.key]!=null && <Badge tone={pctTone(quickScoresObj[a.key])}>{quickScoresObj[a.key]}/30</Badge>}
+              </div>
+              {QUICK_ASSESSMENT_QUESTION_INDEXES[a.key].map((qIdx, i) => (
+                <div key={qIdx} className="flex-between" style={{marginBottom:8}}>
+                  <div style={{maxWidth:520}}>{PCT_QUESTIONS[a.key][qIdx]}</div>
+                  <Likert value={state.quickAssessment[a.key][i]} onChange={v=>setQuickAnswer(a.key, i, v)}/>
+                </div>
+              ))}
+            </div>
+          ))}
+          <PctRadarChart scores={quickScoresObj} weakestKeys={quickWeakestAreas.map(a=>a.key)}/>
+          {quickWeakestAreas.length > 0 && (
+            <div className="banner warn" style={{marginTop:10}}>
+              <strong>Najsłabszy obszar: {quickWeakestAreas.map(a=>a.label+" ("+a.value+"/30)").join(" i ")}</strong>
+              {quickWeakestAreas.map(a => <div key={a.key} style={{marginTop:4}}>{a.recommendation}</div>)}
+            </div>
+          )}
+          <div className="banner info flex-between" style={{marginTop:14}}>
+            <div>Średnia: <strong>{quickAvg!=null ? quickAvg.toFixed(1) : "–"}</strong>{quickWeakestAreas.length ? (" · Najsłabszy obszar: " + quickWeakestAreas.map(a=>a.label).join(" i ")) : ""}</div>
+            <Badge tone={pctTone(quickAvg)}>{PCT_TONE_LABELS[pctTone(quickAvg)]}</Badge>
+          </div>
         </div>
       )}
 
@@ -2192,7 +2493,7 @@ function PlanDzialan({actionsByCategory, categoryBarrier, adkarByCategory, group
   );
 }
 
-function Pulpit({project, level, surveyTotal, pctAvg, pctWeakestAreas, statusCounts, signals, goTo}){
+function Pulpit({project, level, surveyTotal, readinessAvg, readinessWeakestAreas, readinessLabel, statusCounts, signals, goTo}){
   const wipOver = statusCounts["W realizacji"] > MAX_WIP_ACTIONS;
   return (
     <React.Fragment>
@@ -2203,8 +2504,8 @@ function Pulpit({project, level, surveyTotal, pctAvg, pctWeakestAreas, statusCou
           <div><div className="muted">Sponsor</div><div>{project.sponsor || "–"}</div></div>
           <div><div className="muted">Typ projektu</div><div>{project.typProjektu || "–"}</div></div>
           <div><div className="muted">Skala zmiany</div><div><Badge tone={level.color}>{level.complete ? (surveyTotal + " pkt — poziom " + level.poziom) : "ankieta nieukończona"}</Badge></div></div>
-          <div><div className="muted">PCT — średnia</div><div><Badge tone={pctTone(pctAvg)}>{pctAvg!=null?pctAvg.toFixed(1):"brak danych"}</Badge></div></div>
-          <div><div className="muted">PCT — najsłabszy obszar</div><div>{pctWeakestAreas.length ? pctWeakestAreas.map(a=>a.label).join(" i ") : "–"}</div></div>
+          <div><div className="muted">{readinessLabel} — średnia</div><div><Badge tone={pctTone(readinessAvg)}>{readinessAvg!=null?readinessAvg.toFixed(1):"brak danych"}</Badge></div></div>
+          <div><div className="muted">{readinessLabel} — najsłabszy obszar</div><div>{readinessWeakestAreas.length ? readinessWeakestAreas.map(a=>a.label).join(" i ") : "–"}</div></div>
         </div>
       </div>
 
@@ -2252,7 +2553,7 @@ function Przewodnik(){
       </p>
       <ul>
         <li><strong>Poziom 1 (mała zmiana):</strong> zakładka „Checklisty” — krótkie pytania o sponsora. Grupy objęte zmianą wypełnij bezpośrednio w karcie projektu.</li>
-        <li><strong>Poziom 2 (średnia zmiana):</strong> „Checklisty” + „Diagnoza” (grupy i ADKAR, na razie bez pełnego PCT) + „Plan działań” + „Pulpit”. Grupy wypełnij tutaj, w Diagnozie — nie duplikuj tego w karcie.</li>
+        <li><strong>Poziom 2 (średnia zmiana):</strong> „Checklisty” + „Diagnoza” (szybka ocena gotowości, grupy i ADKAR) + „Plan działań” + „Pulpit”. Grupy wypełnij tutaj, w Diagnozie — nie duplikuj tego w karcie.</li>
         <li><strong>Poziom 3 (duża zmiana):</strong> „Diagnoza” (pełne PCT + ADKAR), „Plan działań” i „Pulpit”.</li>
       </ul>
       <p className="hint">
@@ -2262,7 +2563,7 @@ function Przewodnik(){
       <p className="hint">Jeśli w trakcie pracy okaże się, że zmiana jest inna niż na starcie, wróć do „Ankiety” i zmień odpowiedzi — ścieżka przełączy się automatycznie.</p>
       <h3>Praca w Diagnozie i Planie działań</h3>
       <ol>
-        <li><strong>Diagnoza:</strong> (dla dużej zmiany) uzupełnij PCT, przypisz grupy do kategorii i wykonaj oceny ADKAR.</li>
+        <li><strong>Diagnoza:</strong> uzupełnij ocenę gotowości (pełny PCT dla dużej zmiany, szybka ocena dla średniej), przypisz grupy do kategorii i wykonaj oceny ADKAR.</li>
         <li><strong>Plan:</strong> wpisz działania (max {MAX_ACTIONS_PER_CATEGORY}/kategorię), sposób sprawdzenia gotowości i zaznacz, czy działanie trafiło do harmonogramu projektu.</li>
         <li><strong>Pulpit:</strong> podczas przeglądu aktualizuj statusy działań i reaguj na blokady.</li>
       </ol>
@@ -2279,7 +2580,6 @@ function Przewodnik(){
       <h3>Co jeszcze jest w toku (otwarte tematy z zespołu)</h3>
       <ul>
         <li>Checklisty dla poziomu 1 i 2 zmiany — w przygotowaniu (Martyna); obecna wersja w zakładce „Checklisty” to zaślepka.</li>
-        <li>Uproszczony PCT dla poziomu 2 (średnia zmiana) — jeszcze nie ma treści pytań, na razie Diagnoza dla poziomu 2 zaczyna się od grup.</li>
         <li>Kategoria „Klienci / studenci” — opcjonalna, do przetestowania na żywym projekcie.</li>
         <li>Nazewnictwo „menedżerowie liniowi” — do ostatecznego uzgodnienia z HR.</li>
       </ul>

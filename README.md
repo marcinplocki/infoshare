@@ -11,10 +11,12 @@ bez serwera, wystarczy otworzyć `plan-zarzadzania-zmiana.html` w przeglądarce.
   zmianę do poziomu 1 (mała), 2 (średnia) lub 3 (duża).
 - **Checklisty (poziom 1–2)** — zaślepka dla uproszczonej ścieżki; docelową
   treść przygotowuje Martyna.
-- **Diagnoza** — kondycja PCT całego przedsięwzięcia (poziom 3) oraz ocena
-  ADKAR dla 4 stałych kategorii interesariuszy (+ opcjonalna 5.
+- **Diagnoza** — ocena gotowości całego przedsięwzięcia (pełny PCT jako
+  zestaw pytań dla poziomu 3, skrócona „Szybka ocena gotowości” dla
+  poziomu 2, obie z wizualizacją na wykresie radarowym) oraz ocena ADKAR
+  dla 4 stałych kategorii interesariuszy (+ opcjonalna 5.
   „Klienci/studenci”), z automatycznym „szybkim skanem”. Dostępna dla
-  poziomu 2 i 3 (dla poziomu 2 na razie bez sekcji PCT).
+  poziomu 2 i 3.
 - **Plan działań** — zagregowany na poziomie kategorii, limit **3 działania
   na kategorię**, z przykładowymi działaniami podpowiadanymi automatycznie
   po zidentyfikowaniu bariery ADKAR.
