@@ -5,18 +5,23 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Plan zarządzania zmianą (PZZ) — Grupa Merito</title>
 <meta name="description" content="Uproszczony Plan Zarządzania Zmianą wg szablonu Grupy Merito.">
-<meta name="theme-color" content="#0F2027">
+<meta name="theme-color" content="#141E50">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&display=swap" rel="stylesheet">
 <style>
   :root{
-    --ink:#0F2027; --ink-soft:#27404a; --paper:#f7f8f9; --card:#ffffff;
-    --line:#c7ced3; --muted:#4b5560; --accent:#0F7173; --accent-soft:#e3f1f1;
+    --ink:#141E50; --ink-soft:#4A5278; --paper:#f0f2f5; --card:#ffffff;
+    --line:#dde0ea; --muted:#4A5278; --accent:#006EFA; --accent-soft:#e7f1ff; --accent2:#BABDCC;
     --red:#9c261e; --red-bg:#fdeceb; --orange:#8a4f00; --orange-bg:#fdf0dc;
     --green:#1a5c33; --green-bg:#e7f5ec;
   }
   *{box-sizing:border-box;}
-  body{margin:0;font:16px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;color:var(--ink);background:var(--paper);}
+  body{margin:0;font:16px/1.55 'Inter',-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;color:var(--ink);background:var(--paper);}
   header.app{background:var(--ink);color:#fff;padding:14px 20px;display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;}
-  header.app h1{font-size:19px;margin:0;font-weight:700;}
+  .brand-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;}
+  .brand-badge{display:inline-flex;align-items:center;background:var(--accent);color:#fff;font-weight:800;font-size:11px;letter-spacing:.07em;text-transform:uppercase;padding:5px 12px;border-radius:20px;white-space:nowrap;}
+  header.app h1{font-size:19px;margin:0;font-weight:900;}
   header.app .sub{font-size:14px;opacity:.9;}
   .toolbar{display:flex;gap:8px;flex-wrap:wrap;}
   button{font:inherit;font-size:15px;cursor:pointer;border-radius:7px;border:1.5px solid var(--line);background:var(--card);padding:9px 14px;color:var(--ink);}
@@ -28,8 +33,8 @@
   nav.tabs button{border:none;background:transparent;padding:11px 15px;border-radius:8px 8px 0 0;color:var(--muted);font-weight:600;font-size:15px;}
   nav.tabs button.active{background:var(--card);color:var(--ink);box-shadow:0 -2px 0 var(--accent) inset;}
   main{max-width:1080px;margin:0 auto;padding:20px 16px 60px;}
-  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:20px 22px;margin-bottom:16px;}
-  .card h2{margin:0 0 4px;font-size:19px;}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:20px 22px;margin-bottom:16px;box-shadow:0 1px 3px rgba(20,30,80,.06);}
+  .card h2{margin:0 0 4px;font-size:19px;font-weight:900;color:var(--ink);}
   .card h3{margin:20px 0 10px;font-size:14.5px;text-transform:uppercase;letter-spacing:.03em;color:var(--muted);font-weight:700;}
   .card p.hint{color:var(--muted);font-size:14.5px;margin:2px 0 14px;}
   .grid{display:grid;gap:14px;}
@@ -50,7 +55,7 @@
   .badge.gray{background:#e4e7ea;color:var(--muted);}
   table{width:100%;border-collapse:collapse;font-size:15px;}
   table th,table td{border-bottom:1px solid var(--line);padding:9px 7px;text-align:left;vertical-align:top;}
-  table th{color:var(--muted);font-weight:700;font-size:13px;text-transform:uppercase;letter-spacing:.02em;}
+  table th{color:var(--ink);font-weight:800;font-size:13px;text-transform:uppercase;letter-spacing:.02em;}
   .bar-row{display:flex;align-items:center;gap:10px;margin-bottom:7px;}
   .bar-row .label{width:150px;font-size:14.5px;flex:none;}
   .bar-track{flex:1;height:10px;background:#e4e7ea;border-radius:5px;overflow:hidden;}
@@ -84,6 +89,7 @@
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
 <script src="https://unpkg.com/@babel/standalone@7/babel.min.js" crossorigin></script>
 <script src="https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js" crossorigin></script>
+<script src="https://unpkg.com/exceljs@4.4.0/dist/exceljs.min.js" crossorigin></script>
 <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js" crossorigin></script>
 
 <script type="text/plain" id="app-source">
@@ -171,6 +177,51 @@ function computeWeakestPctAreas(row){
 }
 
 const STATUS_OPTIONS = ["Do zaplanowania","W realizacji","Do weryfikacji","Zablokowane","Zrealizowane"];
+
+/* ---------- Styl eksportu Excel (paleta marki Grupa Merito) ---------- */
+const XLS_NAVY = "FF141E50";
+const XLS_BLUE = "FF006EFA";
+const XLS_MUTED = "FF4A5278";
+const XLS_LIGHT_FILL = "FFEAF1FE";
+const XLS_LINE = "FFE2E5EE";
+
+function xlsTitleRow(ws, values){
+  const row = ws.addRow(values);
+  row.height = 24;
+  row.font = {name:"Inter", bold:true, size:14, color:{argb:XLS_NAVY}};
+  row.eachCell(c => { c.fill = {type:"pattern", pattern:"solid", fgColor:{argb:XLS_LIGHT_FILL}}; });
+  return row;
+}
+function xlsSectionRow(ws, values){
+  const row = ws.addRow(values);
+  row.font = {name:"Inter", bold:true, size:12, color:{argb:XLS_NAVY}};
+  row.eachCell(c => { c.border = {bottom:{style:"medium", color:{argb:XLS_BLUE}}}; });
+  return row;
+}
+function xlsHeaderRow(ws, values){
+  const row = ws.addRow(values);
+  row.font = {name:"Inter", bold:true, color:{argb:XLS_NAVY}};
+  row.eachCell(c => {
+    c.fill = {type:"pattern", pattern:"solid", fgColor:{argb:XLS_LIGHT_FILL}};
+    c.border = {bottom:{style:"thin", color:{argb:XLS_LINE}}};
+  });
+  return row;
+}
+function xlsDataRow(ws, values, accentCols){
+  const row = ws.addRow(values);
+  row.font = {name:"Inter", color:{argb:XLS_NAVY}};
+  row.eachCell((c, colNumber) => {
+    c.border = {bottom:{style:"thin", color:{argb:XLS_LINE}}};
+    if (accentCols && accentCols.includes(colNumber)) c.font = {name:"Inter", bold:true, color:{argb:XLS_BLUE}};
+  });
+  return row;
+}
+function xlsLabelRow(ws, label, value, accent){
+  const row = ws.addRow([label, value]);
+  row.getCell(1).font = {name:"Inter", bold:true, color:{argb:XLS_NAVY}};
+  row.getCell(2).font = accent ? {name:"Inter", bold:true, color:{argb:XLS_BLUE}} : {name:"Inter", color:{argb:XLS_MUTED}};
+  return row;
+}
 
 const SURVEY = {
   partI: [
@@ -945,138 +996,139 @@ function App(){
   }
   function dismissKartaImport(){ setKartaImport(null); }
 
-  function exportExcel(){
-    const wb = XLSX.utils.book_new();
+  // SheetJS Community (biblioteka "xlsx" używana do importu) nie potrafi zapisać kolorów ani
+  // fontów w plikach .xlsx — to funkcja płatnej wersji Pro. Do STYLOWANEGO eksportu używamy
+  // ExcelJS (open-source, wspiera pełne stylowanie), zgodnie z paletą marki Grupa Merito
+  // (Instrukcja dla Agenta AI — Typografia i Layout): #141E50 granat, #006EFA akcent, font Inter.
+  async function exportExcel(){
+    const wb = new ExcelJS.Workbook();
+    wb.creator = "Plan Zarządzania Zmianą — Grupa Merito";
     const activeCategories = CATEGORIES.concat(state.usesOptionalCategory ? [OPTIONAL_CATEGORY] : []);
-    const withCols = (ws, widths) => { ws["!cols"] = widths.map(w => ({wch:w})); return ws; };
 
-    const daneRows = [
-      ["PLAN ZARZĄDZANIA ZMIANĄ — DANE PROJEKTU"],
-      [],
-      ["Nazwa projektu/programu", state.project.nazwa],
-      ["Sponsor", state.project.sponsor],
-      ["PM", state.project.pm],
-      ["CM (jeśli powołany)", state.project.cm],
-      ["Typ projektu", state.project.typProjektu],
-      ["Okres realizacji projektu", state.project.okresRealizacji],
-      ["Termin przygotowania PZZ", state.project.terminPrzygotowania],
-      ["Częstotliwość przeglądu", state.project.czestotliwosc],
-      [],
-      ["Nick/symbol", state.project.nick],
-      ["Filie objęte projektem", state.project.filie],
-      ["Budżet razem (brutto)", state.project.budzetRazem],
-      ["Źródło finansowania", state.project.zrodloFinansowania],
-      ["Związek ze strategią", state.project.zwiazekZeStrategia],
-      ["Powody podjęcia projektu", state.project.powodyProjektu],
-      ["Cel projektu", state.project.celProjektu],
-      ["Główna korzyść biznesowa", state.project.glownaKorzysc],
-      ["Wyłączenia", state.project.wylaczenia],
-      [],
-      ["Liczba punktów w ankiecie skali zmiany (patrz też arkusz „Ankieta”)", surveyTotal],
-      ["Poziom zmiany", level.complete ? (level.poziom + " — " + level.label) : "Ankieta nieukończona"],
-      ["Ocena ryzyka", level.risk],
-      [],
-      ["KAMIENIE MILOWE Z KARTY PROJEKTU"],
-      ["Kamień milowy", "Termin"],
-      ...state.milestones.map(m => [m.nazwa, m.termin]),
-      [],
-      ["SKŁAD ZESPOŁU Z KARTY PROJEKTU"],
-      ["Imię i nazwisko", "Dział", "Rola", "Zaangażowanie"],
-      ...state.teamMembers.map(t => [t.imie, t.dzial, t.rola, t.zaangazowanie]),
-      [],
-      ["KLUCZOWE RYZYKA Z KARTY PROJEKTU"],
-      ["Ryzyko", "Sposób zarządzania"],
-      ...state.risks.map(r => [r.ryzyko, r.zarzadzanie]),
-      [],
-      ["WYPRACOWANE PRODUKTY Z KARTY PROJEKTU"],
-      ["Produkt", "Wartość", "Termin", "Odbiorca"],
-      ...state.deliverables.map(d => [d.produkt, d.wartosc, d.termin, d.odbiorca]),
-      [],
-      ["POZYCJE BUDŻETOWE Z KARTY PROJEKTU"],
-      ["Pozycja", "Kwota"],
-      ...state.budgetItems.map(b => [b.pozycja, b.kwota]),
-      [],
-      ["POWIĄZANIA Z INNYMI PROJEKTAMI"],
-      ["Projekt", "Zależność", "Współpraca"],
-      ...state.links.map(l => [l.projekt, l.zaleznosc, l.wspolpraca]),
-      [],
-      ["KOSZTY UTRZYMANIA PO PROJEKCIE"],
-      ["Rok", "Kategorie kosztów", "Kwota"],
-      ...state.maintenanceCosts.map(m => [m.rok, m.kategorie, m.kwota]),
-    ];
-    XLSX.utils.book_append_sheet(wb, withCols(XLSX.utils.aoa_to_sheet(daneRows), [45,60]), "Dane projektu");
+    const wsDane = wb.addWorksheet("Dane projektu");
+    wsDane.columns = [{width:45},{width:40},{width:30},{width:25}];
+    xlsTitleRow(wsDane, ["PLAN ZARZĄDZANIA ZMIANĄ — DANE PROJEKTU"]);
+    wsDane.addRow([]);
+    xlsLabelRow(wsDane, "Nazwa projektu/programu", state.project.nazwa);
+    xlsLabelRow(wsDane, "Sponsor", state.project.sponsor);
+    xlsLabelRow(wsDane, "PM", state.project.pm);
+    xlsLabelRow(wsDane, "CM (jeśli powołany)", state.project.cm);
+    xlsLabelRow(wsDane, "Typ projektu", state.project.typProjektu);
+    xlsLabelRow(wsDane, "Okres realizacji projektu", state.project.okresRealizacji);
+    xlsLabelRow(wsDane, "Termin przygotowania PZZ", state.project.terminPrzygotowania);
+    xlsLabelRow(wsDane, "Częstotliwość przeglądu", state.project.czestotliwosc);
+    wsDane.addRow([]);
+    xlsLabelRow(wsDane, "Nick/symbol", state.project.nick);
+    xlsLabelRow(wsDane, "Filie objęte projektem", state.project.filie);
+    xlsLabelRow(wsDane, "Budżet razem (brutto)", state.project.budzetRazem);
+    xlsLabelRow(wsDane, "Źródło finansowania", state.project.zrodloFinansowania);
+    xlsLabelRow(wsDane, "Związek ze strategią", state.project.zwiazekZeStrategia);
+    xlsLabelRow(wsDane, "Powody podjęcia projektu", state.project.powodyProjektu);
+    xlsLabelRow(wsDane, "Cel projektu", state.project.celProjektu);
+    xlsLabelRow(wsDane, "Główna korzyść biznesowa", state.project.glownaKorzysc);
+    xlsLabelRow(wsDane, "Wyłączenia", state.project.wylaczenia);
+    wsDane.addRow([]);
+    xlsLabelRow(wsDane, "Liczba punktów w ankiecie skali zmiany (patrz też arkusz „Ankieta”)", surveyTotal, true);
+    xlsLabelRow(wsDane, "Poziom zmiany", level.complete ? (level.poziom + " — " + level.label) : "Ankieta nieukończona", true);
+    xlsLabelRow(wsDane, "Ocena ryzyka", level.risk);
+    wsDane.addRow([]);
+    xlsSectionRow(wsDane, ["KAMIENIE MILOWE Z KARTY PROJEKTU"]);
+    xlsHeaderRow(wsDane, ["Kamień milowy", "Termin"]);
+    state.milestones.forEach(m => xlsDataRow(wsDane, [m.nazwa, m.termin]));
+    wsDane.addRow([]);
+    xlsSectionRow(wsDane, ["SKŁAD ZESPOŁU Z KARTY PROJEKTU"]);
+    xlsHeaderRow(wsDane, ["Imię i nazwisko", "Dział", "Rola", "Zaangażowanie"]);
+    state.teamMembers.forEach(t => xlsDataRow(wsDane, [t.imie, t.dzial, t.rola, t.zaangazowanie]));
+    wsDane.addRow([]);
+    xlsSectionRow(wsDane, ["KLUCZOWE RYZYKA Z KARTY PROJEKTU"]);
+    xlsHeaderRow(wsDane, ["Ryzyko", "Sposób zarządzania"]);
+    state.risks.forEach(r => xlsDataRow(wsDane, [r.ryzyko, r.zarzadzanie]));
+    wsDane.addRow([]);
+    xlsSectionRow(wsDane, ["WYPRACOWANE PRODUKTY Z KARTY PROJEKTU"]);
+    xlsHeaderRow(wsDane, ["Produkt", "Wartość", "Termin", "Odbiorca"]);
+    state.deliverables.forEach(d => xlsDataRow(wsDane, [d.produkt, d.wartosc, d.termin, d.odbiorca]));
+    wsDane.addRow([]);
+    xlsSectionRow(wsDane, ["POZYCJE BUDŻETOWE Z KARTY PROJEKTU"]);
+    xlsHeaderRow(wsDane, ["Pozycja", "Kwota"]);
+    state.budgetItems.forEach(b => xlsDataRow(wsDane, [b.pozycja, b.kwota], [2]));
+    wsDane.addRow([]);
+    xlsSectionRow(wsDane, ["POWIĄZANIA Z INNYMI PROJEKTAMI"]);
+    xlsHeaderRow(wsDane, ["Projekt", "Zależność", "Współpraca"]);
+    state.links.forEach(l => xlsDataRow(wsDane, [l.projekt, l.zaleznosc, l.wspolpraca]));
+    wsDane.addRow([]);
+    xlsSectionRow(wsDane, ["KOSZTY UTRZYMANIA PO PROJEKCIE"]);
+    xlsHeaderRow(wsDane, ["Rok", "Kategorie kosztów", "Kwota"]);
+    state.maintenanceCosts.forEach(m => xlsDataRow(wsDane, [m.rok, m.kategorie, m.kwota], [3]));
 
-    const ankietaRows = [
-      ["ANKIETA — SKALA ZMIANY", "", "", ""],
-      ["ID pytania", "Sekcja", "Pytanie", "Odpowiedź (1-5)"],
-      ...SURVEY.partI.map(q => ["survey:"+q.id, "I", q.q, state.surveyAnswers[q.id] ?? ""]),
-      ...SURVEY.partII_items.map(it => ["survey:"+it.id, "II", it.label, state.surveyAnswers[it.id] ?? ""]),
-      ["survey:"+SURVEY.partII_extra.id, "II", SURVEY.partII_extra.q, state.surveyAnswers[SURVEY.partII_extra.id] ?? ""],
-      ...SURVEY.partIII.map(q => ["survey:"+q.id, "III", q.q, state.surveyAnswers[q.id] ?? ""]),
-      [],
-      ["Suma punktów", surveyTotal],
-      ["Poziom zmiany", level.complete ? (level.poziom + " — " + level.label) : "Ankieta nieukończona"],
-    ];
-    XLSX.utils.book_append_sheet(wb, withCols(XLSX.utils.aoa_to_sheet(ankietaRows), [16,8,70,14]), "Ankieta");
+    const wsAnk = wb.addWorksheet("Ankieta");
+    wsAnk.columns = [{width:16},{width:8},{width:70},{width:14}];
+    xlsTitleRow(wsAnk, ["ANKIETA — SKALA ZMIANY"]);
+    xlsHeaderRow(wsAnk, ["ID pytania", "Sekcja", "Pytanie", "Odpowiedź (1-5)"]);
+    SURVEY.partI.forEach(q => xlsDataRow(wsAnk, ["survey:"+q.id, "I", q.q, state.surveyAnswers[q.id] ?? ""], [4]));
+    SURVEY.partII_items.forEach(it => xlsDataRow(wsAnk, ["survey:"+it.id, "II", it.label, state.surveyAnswers[it.id] ?? ""], [4]));
+    xlsDataRow(wsAnk, ["survey:"+SURVEY.partII_extra.id, "II", SURVEY.partII_extra.q, state.surveyAnswers[SURVEY.partII_extra.id] ?? ""], [4]);
+    SURVEY.partIII.forEach(q => xlsDataRow(wsAnk, ["survey:"+q.id, "III", q.q, state.surveyAnswers[q.id] ?? ""], [4]));
+    wsAnk.addRow([]);
+    xlsLabelRow(wsAnk, "Suma punktów", surveyTotal, true);
+    xlsLabelRow(wsAnk, "Poziom zmiany", level.complete ? (level.poziom + " — " + level.label) : "Ankieta nieukończona", true);
 
-    const pctRows = [
-      ["Data","Punkt kontrolny","Definicja sukcesu","Przywództwo/sponsoring","Zarządzanie projektem","Zarządzanie zmianą","Średnia PCT","Działania usprawniające do kolejnego przeglądu","Kolejny przegląd"],
-      ...state.pctHistory.map(p => {
-        const nums = [p.definicjaSukcesu,p.przywodztwo,p.zarzadzanieProjektem,p.zarzadzanieZmiana].filter(v=>v!=="" && v!=null).map(Number);
-        const avg = nums.length ? (nums.reduce((a,b)=>a+b,0)/nums.length).toFixed(1) : "";
-        return [p.data,p.punktKontrolny,p.definicjaSukcesu,p.przywodztwo,p.zarzadzanieProjektem,p.zarzadzanieZmiana,avg,p.decyzja,p.kolejnyPrzeglad];
-      }),
-    ];
-    const diagRows = [
-      ["PCT — KONDYCJA CAŁEGO PRZEDSIĘWZIĘCIA"],
-      ...pctRows,
-      ["Najsłabszy obszar (ostatni pomiar)", pctWeakestAreas.map(a=>a.label).join(" i ") || ""],
-      [],
-      ["GRUPY OBJĘTE ZMIANĄ"],
-      ["Grupa","Co zmienia się w ich pracy?","Kategoria"],
-      ...state.groups.map(g => [g.nazwa, g.wplyw, ALL_CATEGORIES.find(c=>c.id===g.categoryId)?.label || ""]),
-      [],
-      ["ADKAR PER KATEGORIA (1-5)"],
-      ["Kategoria","Awareness","Desire","Knowledge","Ability","Reinforcement","Największa bariera","Co powinno się zmienić dla tej grupy?"],
-      ...activeCategories.map(c => {
-        const d = state.adkarByCategory[c.id] || {};
-        const b = categoryBarrier(c.id);
-        return [c.label, d.awareness, d.desire, d.knowledge, d.ability, d.reinforcement, b.map(x=>x.label).join(" i "), d.wniosek || ""];
-      }),
-      [],
-      ["ADKAR — SZYBKI SKAN"],
-      ["Element","Średnia","Min","Kategorie z oceną ≤2","Podpowiedź"],
-      ...adkarRollup.map(r => [r.label, r.avg!=null?r.avg.toFixed(2):"", r.min, r.atRisk.join("; "), r.suggestion]),
-    ];
-    XLSX.utils.book_append_sheet(wb, withCols(XLSX.utils.aoa_to_sheet(diagRows), [40,45,16,16,16,16,14,45,16]), "Diagnoza");
+    const wsDiag = wb.addWorksheet("Diagnoza");
+    wsDiag.columns = [{width:40},{width:45},{width:16},{width:16},{width:16},{width:16},{width:14},{width:45},{width:16}];
+    xlsSectionRow(wsDiag, ["PCT — KONDYCJA CAŁEGO PRZEDSIĘWZIĘCIA"]);
+    xlsHeaderRow(wsDiag, ["Data","Punkt kontrolny","Definicja sukcesu","Przywództwo/sponsoring","Zarządzanie projektem","Zarządzanie zmianą","Średnia PCT","Działania usprawniające do kolejnego przeglądu","Kolejny przegląd"]);
+    state.pctHistory.forEach(p => {
+      const nums = [p.definicjaSukcesu,p.przywodztwo,p.zarzadzanieProjektem,p.zarzadzanieZmiana].filter(v=>v!=="" && v!=null).map(Number);
+      const avg = nums.length ? (nums.reduce((a,b)=>a+b,0)/nums.length).toFixed(1) : "";
+      xlsDataRow(wsDiag, [p.data,p.punktKontrolny,p.definicjaSukcesu,p.przywodztwo,p.zarzadzanieProjektem,p.zarzadzanieZmiana,avg,p.decyzja,p.kolejnyPrzeglad], [7]);
+    });
+    xlsLabelRow(wsDiag, "Najsłabszy obszar (ostatni pomiar)", pctWeakestAreas.map(a=>a.label).join(" i ") || "");
+    wsDiag.addRow([]);
+    xlsSectionRow(wsDiag, ["GRUPY OBJĘTE ZMIANĄ"]);
+    xlsHeaderRow(wsDiag, ["Grupa","Co zmienia się w ich pracy?","Kategoria"]);
+    state.groups.forEach(g => xlsDataRow(wsDiag, [g.nazwa, g.wplyw, ALL_CATEGORIES.find(c=>c.id===g.categoryId)?.label || ""]));
+    wsDiag.addRow([]);
+    xlsSectionRow(wsDiag, ["ADKAR PER KATEGORIA (1-5)"]);
+    xlsHeaderRow(wsDiag, ["Kategoria","Awareness","Desire","Knowledge","Ability","Reinforcement","Największa bariera","Co powinno się zmienić dla tej grupy?"]);
+    activeCategories.forEach(c => {
+      const d = state.adkarByCategory[c.id] || {};
+      const b = categoryBarrier(c.id);
+      xlsDataRow(wsDiag, [c.label, d.awareness, d.desire, d.knowledge, d.ability, d.reinforcement, b.map(x=>x.label).join(" i "), d.wniosek || ""]);
+    });
+    wsDiag.addRow([]);
+    xlsSectionRow(wsDiag, ["ADKAR — SZYBKI SKAN"]);
+    xlsHeaderRow(wsDiag, ["Element","Średnia","Min","Kategorie z oceną ≤2","Podpowiedź"]);
+    adkarRollup.forEach(r => xlsDataRow(wsDiag, [r.label, r.avg!=null?r.avg.toFixed(2):"", r.min, r.atRisk.join("; "), r.suggestion], [2]));
 
-    const planRows = [
-      ["Kategoria","Działanie","Kamień milowy/etap","Termin","Odpowiedzialny","Jak sprawdzimy gotowość","Dodano do harmonogramu projektu","Status"],
-      ...state.actions.map(a => [
-        ALL_CATEGORIES.find(c=>c.id===a.categoryId)?.label || "",
-        a.dzialanie, a.kamien, a.termin, a.odpowiedzialny, a.weryfikacja, a.dodanoDoHarmonogramu ? "TAK" : "NIE", a.status,
-      ]),
-    ];
-    XLSX.utils.book_append_sheet(wb, withCols(XLSX.utils.aoa_to_sheet(planRows), [40,45,30,14,22,40,20,16]), "Plan działań");
+    const wsPlan = wb.addWorksheet("Plan działań");
+    wsPlan.columns = [{width:40},{width:45},{width:30},{width:14},{width:22},{width:40},{width:20},{width:16}];
+    xlsHeaderRow(wsPlan, ["Kategoria","Działanie","Kamień milowy/etap","Termin","Odpowiedzialny","Jak sprawdzimy gotowość","Dodano do harmonogramu projektu","Status"]);
+    state.actions.forEach(a => xlsDataRow(wsPlan, [
+      ALL_CATEGORIES.find(c=>c.id===a.categoryId)?.label || "",
+      a.dzialanie, a.kamien, a.termin, a.odpowiedzialny, a.weryfikacja, a.dodanoDoHarmonogramu ? "TAK" : "NIE", a.status,
+    ]));
 
-    const pulpitRows = [
-      ["PULPIT PZZ"],
-      ["Skala zmiany", level.complete ? (surveyTotal + " pkt — poziom " + level.poziom + " (" + level.label + ")") : "Ankieta nieukończona"],
-      ["PCT — średnia ostatniego pomiaru", pctAvg!=null?pctAvg.toFixed(1):""],
-      ["PCT — najsłabszy obszar", pctWeakestAreas.map(a=>a.label).join(" i ") || ""],
-      [],
-      ["Wszystkie działania", statusCounts.all],
-      ...STATUS_OPTIONS.map(s => [s, statusCounts[s]]),
-      ["Dodane do harmonogramu projektu", statusCounts.dodaneDoHarmonogramu],
-      [],
-      ["SYGNAŁY DO DECYZJI"],
-      ["Brak odpowiedzialnego", signals.brakOdpowiedzialnego],
-      ["Brak terminu / kamienia milowego", signals.brakTerminu],
-      ["Zablokowane", signals.zablokowane],
-    ];
-    XLSX.utils.book_append_sheet(wb, withCols(XLSX.utils.aoa_to_sheet(pulpitRows), [45,40]), "Pulpit");
+    const wsPulpit = wb.addWorksheet("Pulpit");
+    wsPulpit.columns = [{width:45},{width:40}];
+    xlsTitleRow(wsPulpit, ["PULPIT PZZ"]);
+    xlsLabelRow(wsPulpit, "Skala zmiany", level.complete ? (surveyTotal + " pkt — poziom " + level.poziom + " (" + level.label + ")") : "Ankieta nieukończona", true);
+    xlsLabelRow(wsPulpit, "PCT — średnia ostatniego pomiaru", pctAvg!=null?pctAvg.toFixed(1):"", true);
+    xlsLabelRow(wsPulpit, "PCT — najsłabszy obszar", pctWeakestAreas.map(a=>a.label).join(" i ") || "");
+    wsPulpit.addRow([]);
+    xlsLabelRow(wsPulpit, "Wszystkie działania", statusCounts.all);
+    STATUS_OPTIONS.forEach(s => xlsLabelRow(wsPulpit, s, statusCounts[s]));
+    xlsLabelRow(wsPulpit, "Dodane do harmonogramu projektu", statusCounts.dodaneDoHarmonogramu);
+    wsPulpit.addRow([]);
+    xlsSectionRow(wsPulpit, ["SYGNAŁY DO DECYZJI"]);
+    xlsLabelRow(wsPulpit, "Brak odpowiedzialnego", signals.brakOdpowiedzialnego);
+    xlsLabelRow(wsPulpit, "Brak terminu / kamienia milowego", signals.brakTerminu);
+    xlsLabelRow(wsPulpit, "Zablokowane", signals.zablokowane);
 
-    XLSX.writeFile(wb, (state.project.nazwa || "PZZ") + "_export.xlsx");
+    const buf = await wb.xlsx.writeBuffer();
+    const blob = new Blob([buf], {type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = (state.project.nazwa || "PZZ") + "_export.xlsx";
+    a.click(); URL.revokeObjectURL(url);
   }
 
   // Wczytuje plik wyeksportowany przyciskiem "Eksport Excel" z powrotem do stanu aplikacji —
@@ -1250,7 +1302,10 @@ function App(){
     <React.Fragment>
       <header className="app">
         <div>
-          <h1>Plan zarządzania zmianą — Grupa Merito</h1>
+          <div className="brand-row">
+            <span className="brand-badge">Grupa Merito</span>
+            <h1>Plan zarządzania zmianą</h1>
+          </div>
           <div className="sub">{state.project.nazwa || "Nowy projekt"} · {level.complete ? (surveyTotal + " pkt · Poziom " + level.poziom + " (" + level.label + ")") : ("ankieta: " + surveyAnsweredCount + "/" + SURVEY_QUESTION_COUNT + " pytań")}</div>
         </div>
         <div className="toolbar">
