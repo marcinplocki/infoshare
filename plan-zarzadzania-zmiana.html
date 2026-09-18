@@ -92,12 +92,13 @@ const {useState, useMemo, useEffect, useRef} = React;
 /* ---------- Model referencyjny (zgodny z arkuszem PZZ Grupy Merito) ---------- */
 
 const CATEGORIES = [
-  {id:"kierunek", label:"Nadają kierunek i usuwają bariery"},
-  {id:"przelozeni", label:"Bezpośredni przełożeni — usuwają bariery i/lub sami zmieniają nawyki"},
-  {id:"nowezasady", label:"Pracują według nowych zasad"},
-  {id:"wdrozenie", label:"Przygotowują i wspierają wdrożenie"},
+  {id:"kierunek", label:"Nadają kierunek i usuwają bariery", hint:"Sponsorzy, zarząd, dyrektorzy"},
+  {id:"przelozeni", label:"Bezpośredni przełożeni — usuwają bariery i/lub sami zmieniają nawyki", hint:"Kierownicy wspierający pracowników we wdrożeniu, informujący"},
+  {id:"nowezasady", label:"Pracują według nowych zasad", hint:"Główni użytkownicy zmiany"},
+  {id:"wdrozenie", label:"Przygotowują i wspierają wdrożenie", hint:"PM, PMO, HR, IT, trenerzy"},
 ];
-const OPTIONAL_CATEGORY = {id:"klienci", label:"Klienci / studenci (zewnętrzni odbiorcy zmiany) — opcjonalna, do przetestowania", optional:true};
+const OPTIONAL_CATEGORY = {id:"klienci", label:"Klienci / studenci (zewnętrzni odbiorcy zmiany) — opcjonalna, do przetestowania", optional:true,
+  hint:"Osoby spoza projektu odczuwające skutki zmiany i wymagające zaplanowania dedykowanych działań, np. studenci"};
 const ALL_CATEGORIES = [...CATEGORIES, OPTIONAL_CATEGORY];
 const MAX_ACTIONS_PER_CATEGORY = 3;
 const MAX_WIP_ACTIONS = 5;
@@ -116,9 +117,60 @@ const ADKAR_SUGGESTIONS = {
   ability: "Dodaj ćwiczenia, testy i wsparcie w rzeczywistej pracy.",
   reinforcement: "Ustal właścicieli, pomiary, przeglądy i sposób reagowania na powrót do starych praktyk.",
 };
+// Gotowe przykłady działań na barierę — do wglądu przy diagnozie i przy planowaniu działań,
+// żeby nie zaczynać od pustej kartki (uwagi zespołu: "przy zidentyfikowaniu bariery automatycznie
+// warto wyświetlać przykłady/sugestię działań").
+const ADKAR_BARRIER_INTRO = {
+  awareness: "Jeżeli ludzie nie rozumieją, dlaczego coś robimy.",
+  desire: "Jeżeli ludzie wiedzą „dlaczego”, ale nie chcą.",
+  knowledge: "Jeżeli ludzie chcą, ale nie wiedzą jak.",
+  ability: "Jeśli ludzie mają wiedzę, ale nie potrafią jej zastosować w praktyce.",
+  reinforcement: "Jeśli ludzie już pracują nowym sposobem, ale mogą wrócić do starych nawyków.",
+};
+const ADKAR_EXAMPLES = {
+  awareness: ["komunikacja powodów zmiany", "prezentacja korzyści", "spotkania informacyjne dla pracowników", "udział sponsora w rozmowach z kluczowymi grupami"],
+  desire: ["zaangażowanie przedstawicieli grup w projektowanie rozwiązania", "indywidualne rozmowy z osobami stawiającymi największy opór", "identyfikacja i adresowanie obaw", "pokazanie korzyści dla konkretnych grup", "wykorzystanie ambasadorów zmiany"],
+  knowledge: ["instrukcje krok po kroku", "baza wiedzy lub FAQ", "krótkie filmy instruktażowe", "webinary i sesje pytań i odpowiedzi", "checklisty dla użytkowników", "materiały dla menedżerów", "szkolenia"],
+  ability: ["ćwiczenia na rzeczywistych przypadkach", "okres wsparcia po uruchomieniu rozwiązania", "dyżury ekspertów", "mentoring lub coaching"],
+  reinforcement: ["uwzględnienie nowych zasad w procedurach", "monitorowanie wskaźników wykorzystania rozwiązania", "przeglądy po wdrożeniu", "regularne przypomnienia dla użytkowników", "omówienie efektów osiągniętych dzięki zmianie", "nagradzanie dobrych praktyk"],
+};
+
+// Opisy i przykładowe wpisy per obszar PCT — pokazywane automatycznie przy najsłabszym obszarze
+// (uwagi zespołu: "w pierwszej kolejności... wskazówkę czym trzeba się zająć").
+const PCT_AREAS = [
+  {key:"definicjaSukcesu", label:"Definicja sukcesu",
+    recommendation:"Upewnij się, że cele, korzyści i mierniki sukcesu są jednoznacznie określone oraz zrozumiałe dla kluczowych interesariuszy.",
+    example:"Doprecyzowanie mierników sukcesu i uzgodnienie wartości docelowych ze Sponsorem."},
+  {key:"przywodztwo", label:"Przywództwo / sponsoring",
+    recommendation:"Zwiększ widoczność i zaangażowanie sponsora — regularna komunikacja, udział w kluczowych decyzjach i spotkaniach statusowych.",
+    example:"Comiesięczne komunikaty Sponsora do kierowników jednostek oraz udział Sponsora w spotkaniach statusowych."},
+  {key:"zarzadzanieProjektem", label:"Zarządzanie projektem",
+    recommendation:"Sprawdź, czy zakres, harmonogram i ryzyka są aktualne i mają przypisanych właścicieli.",
+    example:"Aktualizacja harmonogramu, przypisanie właścicieli działań i przegląd ryzyk."},
+  {key:"zarzadzanieZmiana", label:"Zarządzanie zmianą",
+    recommendation:"W pierwszej kolejności zaplanuj działania wspierające wykorzystanie rezultatów projektu w codziennej pracy, np. komunikację, szkolenia, wsparcie menedżerów lub dostosowanie procesów.",
+    example:"Opracowanie planu komunikacji oraz spotkań informacyjnych dla grup objętych zmianą."},
+];
+
+// Zwraca WSZYSTKIE obszary PCT związane najniższym wynikiem w danym pomiarze (remis = kilka
+// obszarów do zaadresowania w pierwszej kolejności, nie tylko jeden) — używane zarówno dla
+// zagregowanego "ostatniego pomiaru" w pulpicie/nagłówku, jak i osobno dla każdego wiersza
+// historii PCT w Diagnozie.
+function computeWeakestPctAreas(row){
+  if (!row) return [];
+  let worstVal = Infinity;
+  PCT_AREAS.forEach(a => {
+    const v = row[a.key];
+    if (v !== "" && v != null && Number(v) < worstVal) worstVal = Number(v);
+  });
+  if (worstVal === Infinity) return [];
+  return PCT_AREAS.filter(a => {
+    const v = row[a.key];
+    return v !== "" && v != null && Number(v) === worstVal;
+  }).map(a => ({...a, value: worstVal}));
+}
 
 const STATUS_OPTIONS = ["Do zaplanowania","W realizacji","Do weryfikacji","Zablokowane","Zrealizowane"];
-const CHANNEL_SUGGESTIONS = ["mail","Intranet GM","Teams","spotkanie stacjonarne","spotkanie online","ankieta","SharePoint"];
 
 const SURVEY = {
   partI: [
@@ -637,6 +689,7 @@ function App(){
   const [toast, setToast] = useState(null);
   const [kartaImport, setKartaImport] = useState(null);
   const fileInputRef = useRef(null);
+  const excelInputRef = useRef(null);
   const kartaInputRef = useRef(null);
   const versionsDialogRef = useRef(null);
 
@@ -670,15 +723,7 @@ function App(){
   const pctLatest = [...state.pctHistory].reverse().find(p => PCT_FIELDS.some(k => p[k] !== "" && p[k] != null)) || {};
   const pctNums = PCT_FIELDS.map(k => pctLatest[k]).filter(v => v !== "" && v != null).map(Number);
   const pctAvg = pctNums.length ? (pctNums.reduce((a,b)=>a+b,0)/pctNums.length) : null;
-  const pctWeakestKey = (() => {
-    const labels = {definicjaSukcesu:"Definicja sukcesu", przywodztwo:"Przywództwo / sponsoring", zarzadzanieProjektem:"Zarządzanie projektem", zarzadzanieZmiana:"Zarządzanie zmianą"};
-    let worst = null, worstVal = Infinity;
-    Object.keys(labels).forEach(k => {
-      const v = pctLatest[k];
-      if (v !== "" && v != null && Number(v) < worstVal){ worstVal = Number(v); worst = labels[k]; }
-    });
-    return worst;
-  })();
+  const pctWeakestAreas = computeWeakestPctAreas(pctLatest);
 
   const adkarRollup = useMemo(()=>{
     const activeCats = CATEGORIES.concat(state.usesOptionalCategory ? [OPTIONAL_CATEGORY] : []);
@@ -697,15 +742,22 @@ function App(){
     });
   }, [state.adkarByCategory, state.usesOptionalCategory]);
 
+  // Zwraca WSZYSTKIE wymiary ADKAR związane najniższą oceną w danej kategorii, nie tylko pierwszy
+  // znaleziony — przy remisie (np. Knowledge i Reinforcement oba na 2) oba są barierą do zaadresowania,
+  // nie tylko jeden (zgłoszony błąd: przy dwóch tak samo ocenionych obszarach tool pokazywał jeden).
   function categoryBarrier(catId){
     const d = state.adkarByCategory[catId];
-    if (!d) return null;
-    let worst = null, worstVal = Infinity;
+    if (!d) return [];
+    let worstVal = Infinity;
     ADKAR_DIMS.forEach(dim => {
       const v = d[dim.id];
-      if (v !== null && v !== undefined && v !== "" && Number(v) < worstVal){ worstVal = Number(v); worst = dim; }
+      if (v !== null && v !== undefined && v !== "" && Number(v) < worstVal) worstVal = Number(v);
     });
-    return worst;
+    if (worstVal === Infinity) return [];
+    return ADKAR_DIMS.filter(dim => {
+      const v = d[dim.id];
+      return v !== null && v !== undefined && v !== "" && Number(v) === worstVal;
+    });
   }
 
   const actionsByCategory = useMemo(()=>{
@@ -717,7 +769,7 @@ function App(){
   const statusCounts = useMemo(()=>{
     const m = {all: state.actions.length};
     STATUS_OPTIONS.forEach(s => m[s] = state.actions.filter(a=>a.status===s).length);
-    m.linkedToFlexi = state.actions.filter(a => (a.flexiRef||"").trim() !== "").length;
+    m.dodaneDoHarmonogramu = state.actions.filter(a => a.dodanoDoHarmonogramu).length;
     return m;
   }, [state.actions]);
 
@@ -896,6 +948,7 @@ function App(){
   function exportExcel(){
     const wb = XLSX.utils.book_new();
     const activeCategories = CATEGORIES.concat(state.usesOptionalCategory ? [OPTIONAL_CATEGORY] : []);
+    const withCols = (ws, widths) => { ws["!cols"] = widths.map(w => ({wch:w})); return ws; };
 
     const daneRows = [
       ["PLAN ZARZĄDZANIA ZMIANĄ — DANE PROJEKTU"],
@@ -919,7 +972,7 @@ function App(){
       ["Główna korzyść biznesowa", state.project.glownaKorzysc],
       ["Wyłączenia", state.project.wylaczenia],
       [],
-      ["Liczba punktów w ankiecie skali zmiany", surveyTotal],
+      ["Liczba punktów w ankiecie skali zmiany (patrz też arkusz „Ankieta”)", surveyTotal],
       ["Poziom zmiany", level.complete ? (level.poziom + " — " + level.label) : "Ankieta nieukończona"],
       ["Ocena ryzyka", level.risk],
       [],
@@ -951,66 +1004,175 @@ function App(){
       ["Rok", "Kategorie kosztów", "Kwota"],
       ...state.maintenanceCosts.map(m => [m.rok, m.kategorie, m.kwota]),
     ];
-    const wsDane = XLSX.utils.aoa_to_sheet(daneRows);
-    XLSX.utils.book_append_sheet(wb, wsDane, "Dane projektu");
+    XLSX.utils.book_append_sheet(wb, withCols(XLSX.utils.aoa_to_sheet(daneRows), [45,60]), "Dane projektu");
 
-    const diagRows = [
-      ["PCT — KONDYCJA CAŁEGO PRZEDSIĘWZIĘCIA"],
-      ["Data","Punkt kontrolny","Definicja sukcesu","Przywództwo/sponsoring","Zarządzanie projektem","Zarządzanie zmianą","Średnia PCT","Decyzja/działanie","Kolejny przegląd"],
+    const ankietaRows = [
+      ["ANKIETA — SKALA ZMIANY", "", "", ""],
+      ["ID pytania", "Sekcja", "Pytanie", "Odpowiedź (1-5)"],
+      ...SURVEY.partI.map(q => ["survey:"+q.id, "I", q.q, state.surveyAnswers[q.id] ?? ""]),
+      ...SURVEY.partII_items.map(it => ["survey:"+it.id, "II", it.label, state.surveyAnswers[it.id] ?? ""]),
+      ["survey:"+SURVEY.partII_extra.id, "II", SURVEY.partII_extra.q, state.surveyAnswers[SURVEY.partII_extra.id] ?? ""],
+      ...SURVEY.partIII.map(q => ["survey:"+q.id, "III", q.q, state.surveyAnswers[q.id] ?? ""]),
+      [],
+      ["Suma punktów", surveyTotal],
+      ["Poziom zmiany", level.complete ? (level.poziom + " — " + level.label) : "Ankieta nieukończona"],
+    ];
+    XLSX.utils.book_append_sheet(wb, withCols(XLSX.utils.aoa_to_sheet(ankietaRows), [16,8,70,14]), "Ankieta");
+
+    const pctRows = [
+      ["Data","Punkt kontrolny","Definicja sukcesu","Przywództwo/sponsoring","Zarządzanie projektem","Zarządzanie zmianą","Średnia PCT","Działania usprawniające do kolejnego przeglądu","Kolejny przegląd"],
       ...state.pctHistory.map(p => {
         const nums = [p.definicjaSukcesu,p.przywodztwo,p.zarzadzanieProjektem,p.zarzadzanieZmiana].filter(v=>v!=="" && v!=null).map(Number);
         const avg = nums.length ? (nums.reduce((a,b)=>a+b,0)/nums.length).toFixed(1) : "";
         return [p.data,p.punktKontrolny,p.definicjaSukcesu,p.przywodztwo,p.zarzadzanieProjektem,p.zarzadzanieZmiana,avg,p.decyzja,p.kolejnyPrzeglad];
       }),
+    ];
+    const diagRows = [
+      ["PCT — KONDYCJA CAŁEGO PRZEDSIĘWZIĘCIA"],
+      ...pctRows,
+      ["Najsłabszy obszar (ostatni pomiar)", pctWeakestAreas.map(a=>a.label).join(" i ") || ""],
       [],
       ["GRUPY OBJĘTE ZMIANĄ"],
       ["Grupa","Co zmienia się w ich pracy?","Kategoria"],
       ...state.groups.map(g => [g.nazwa, g.wplyw, ALL_CATEGORIES.find(c=>c.id===g.categoryId)?.label || ""]),
       [],
       ["ADKAR PER KATEGORIA (1-5)"],
-      ["Kategoria","Awareness","Desire","Knowledge","Ability","Reinforcement","Największa bariera","Wniosek"],
+      ["Kategoria","Awareness","Desire","Knowledge","Ability","Reinforcement","Największa bariera","Co powinno się zmienić dla tej grupy?"],
       ...activeCategories.map(c => {
         const d = state.adkarByCategory[c.id] || {};
         const b = categoryBarrier(c.id);
-        return [c.label, d.awareness, d.desire, d.knowledge, d.ability, d.reinforcement, b ? b.label : "", d.wniosek || ""];
+        return [c.label, d.awareness, d.desire, d.knowledge, d.ability, d.reinforcement, b.map(x=>x.label).join(" i "), d.wniosek || ""];
       }),
       [],
       ["ADKAR — SZYBKI SKAN"],
       ["Element","Średnia","Min","Kategorie z oceną ≤2","Podpowiedź"],
       ...adkarRollup.map(r => [r.label, r.avg!=null?r.avg.toFixed(2):"", r.min, r.atRisk.join("; "), r.suggestion]),
     ];
-    const wsDiag = XLSX.utils.aoa_to_sheet(diagRows);
-    XLSX.utils.book_append_sheet(wb, wsDiag, "Diagnoza");
+    XLSX.utils.book_append_sheet(wb, withCols(XLSX.utils.aoa_to_sheet(diagRows), [40,45,16,16,16,16,14,45,16]), "Diagnoza");
 
     const planRows = [
-      ["Kategoria","Działanie","Kamień milowy/etap","Termin","Odpowiedzialny","Jak sprawdzimy gotowość","Kanały komunikacji","Zadanie w Flexi","Status"],
+      ["Kategoria","Działanie","Kamień milowy/etap","Termin","Odpowiedzialny","Jak sprawdzimy gotowość","Dodano do harmonogramu projektu","Status"],
       ...state.actions.map(a => [
         ALL_CATEGORIES.find(c=>c.id===a.categoryId)?.label || "",
-        a.dzialanie, a.kamien, a.termin, a.odpowiedzialny, a.weryfikacja, a.kanaly, a.flexiRef, a.status,
+        a.dzialanie, a.kamien, a.termin, a.odpowiedzialny, a.weryfikacja, a.dodanoDoHarmonogramu ? "TAK" : "NIE", a.status,
       ]),
     ];
-    const wsPlan = XLSX.utils.aoa_to_sheet(planRows);
-    XLSX.utils.book_append_sheet(wb, wsPlan, "Plan działań");
+    XLSX.utils.book_append_sheet(wb, withCols(XLSX.utils.aoa_to_sheet(planRows), [40,45,30,14,22,40,20,16]), "Plan działań");
 
     const pulpitRows = [
       ["PULPIT PZZ"],
       ["Skala zmiany", level.complete ? (surveyTotal + " pkt — poziom " + level.poziom + " (" + level.label + ")") : "Ankieta nieukończona"],
       ["PCT — średnia ostatniego pomiaru", pctAvg!=null?pctAvg.toFixed(1):""],
-      ["PCT — najsłabszy obszar", pctWeakestKey || ""],
+      ["PCT — najsłabszy obszar", pctWeakestAreas.map(a=>a.label).join(" i ") || ""],
       [],
       ["Wszystkie działania", statusCounts.all],
       ...STATUS_OPTIONS.map(s => [s, statusCounts[s]]),
-      ["Powiązane z zadaniem w Flexi", statusCounts.linkedToFlexi],
+      ["Dodane do harmonogramu projektu", statusCounts.dodaneDoHarmonogramu],
       [],
       ["SYGNAŁY DO DECYZJI"],
       ["Brak odpowiedzialnego", signals.brakOdpowiedzialnego],
       ["Brak terminu / kamienia milowego", signals.brakTerminu],
       ["Zablokowane", signals.zablokowane],
     ];
-    const wsPulpit = XLSX.utils.aoa_to_sheet(pulpitRows);
-    XLSX.utils.book_append_sheet(wb, wsPulpit, "Pulpit");
+    XLSX.utils.book_append_sheet(wb, withCols(XLSX.utils.aoa_to_sheet(pulpitRows), [45,40]), "Pulpit");
 
     XLSX.writeFile(wb, (state.project.nazwa || "PZZ") + "_export.xlsx");
+  }
+
+  // Wczytuje plik wyeksportowany przyciskiem "Eksport Excel" z powrotem do stanu aplikacji —
+  // żeby nie trzeba było zawsze trzymać osobno pliku JSON, żeby zapisać kolejną wersję (uwaga
+  // zespołu: "muszę ściągnąć zawsze tego jasona... Excel też by mógł być"). Rozpoznaje TYLKO
+  // format wygenerowany przez "Eksport Excel" (te same nazwy arkuszy i nagłówki kolumn) —
+  // dowolny inny plik .xlsx zostanie odrzucony z komunikatem, zamiast zgadywać układ.
+  function importExcel(file){
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const wb = XLSX.read(reader.result, {type:"array"});
+        const sheet = name => wb.Sheets[name] ? XLSX.utils.sheet_to_json(wb.Sheets[name], {header:1, defval:""}) : null;
+        const dane = sheet("Dane projektu");
+        const ankieta = sheet("Ankieta");
+        const diag = sheet("Diagnoza");
+        const plan = sheet("Plan działań");
+        if (!dane || !ankieta || !diag) throw new Error("missing sheets");
+
+        const label = row => (row[0]||"").toString().trim();
+        const findRow = (rows, prefix) => rows.find(r => label(r).startsWith(prefix));
+        const val = (rows, prefix) => { const r = findRow(rows, prefix); return r ? (r[1] ?? "") : ""; };
+
+        const project = {
+          nazwa: val(dane,"Nazwa projektu"), sponsor: val(dane,"Sponsor"), pm: val(dane,"PM"),
+          cm: val(dane,"CM"), typProjektu: val(dane,"Typ projektu"), okresRealizacji: val(dane,"Okres realizacji"),
+          terminPrzygotowania: val(dane,"Termin przygotowania"), czestotliwosc: val(dane,"Częstotliwość"),
+          nick: val(dane,"Nick/symbol"), filie: val(dane,"Filie objęte"), budzetRazem: val(dane,"Budżet razem"),
+          zrodloFinansowania: val(dane,"Źródło finansowania"), zwiazekZeStrategia: val(dane,"Związek ze strategią"),
+          powodyProjektu: val(dane,"Powody podjęcia"), celProjektu: val(dane,"Cel projektu"),
+          glownaKorzysc: val(dane,"Główna korzyść"), wylaczenia: val(dane,"Wyłączenia"),
+        };
+
+        const surveyAnswers = emptySurveyAnswers();
+        ankieta.forEach(row => {
+          const id = label(row);
+          if (!id.startsWith("survey:")) return;
+          const key = id.slice(7);
+          const v = row[3];
+          if (v !== "" && v != null && key in surveyAnswers) surveyAnswers[key] = Number(v);
+        });
+
+        const pctHeaderIdx = diag.findIndex(r => label(r) === "Data");
+        const groupsHeaderIdx = diag.findIndex(r => label(r) === "Grupa");
+        const adkarHeaderIdx = diag.findIndex(r => label(r) === "Kategoria");
+        const pctHistory = [];
+        if (pctHeaderIdx !== -1){
+          for (let i = pctHeaderIdx+1; i < diag.length; i++){
+            const r = diag[i];
+            if (!label(r) && !r[1]) break;
+            if (label(r).startsWith("Najsłabszy obszar")) break;
+            pctHistory.push({id:cryptoId(), data:r[0]||"", punktKontrolny:r[1]||"", definicjaSukcesu:r[2]??"", przywodztwo:r[3]??"", zarzadzanieProjektem:r[4]??"", zarzadzanieZmiana:r[5]??"", decyzja:r[7]||"", kolejnyPrzeglad:r[8]||""});
+          }
+        }
+        const groups = [];
+        if (groupsHeaderIdx !== -1){
+          for (let i = groupsHeaderIdx+1; i < diag.length; i++){
+            const r = diag[i];
+            if (!label(r)) break;
+            const cat = ALL_CATEGORIES.find(c => c.label === (r[2]||""));
+            groups.push({id:cryptoId(), nazwa:r[0]||"", wplyw:r[1]||"", categoryId: cat ? cat.id : ""});
+          }
+        }
+        const adkarByCategory = emptyAdkarByCategory();
+        if (adkarHeaderIdx !== -1){
+          for (let i = adkarHeaderIdx+1; i < diag.length; i++){
+            const r = diag[i];
+            if (!label(r)) break;
+            const cat = ALL_CATEGORIES.find(c => c.label === label(r));
+            if (!cat) continue;
+            adkarByCategory[cat.id] = {
+              awareness: r[1] ?? null, desire: r[2] ?? null, knowledge: r[3] ?? null,
+              ability: r[4] ?? null, reinforcement: r[5] ?? null, wniosek: r[7] || "",
+            };
+          }
+        }
+
+        const actions = [];
+        if (plan){
+          for (let i = 1; i < plan.length; i++){
+            const r = plan[i];
+            if (!label(r) && !r[1]) continue;
+            const cat = ALL_CATEGORIES.find(c => c.label === label(r));
+            actions.push({
+              id:cryptoId(), categoryId: cat ? cat.id : "", dzialanie:r[1]||"", kamien:r[2]||"", termin:r[3]||"",
+              odpowiedzialny:r[4]||"", weryfikacja:r[5]||"", dodanoDoHarmonogramu: (r[6]||"").toString().trim().toUpperCase()==="TAK",
+              status: STATUS_OPTIONS.includes(r[7]) ? r[7] : "Do zaplanowania",
+            });
+          }
+        }
+
+        setState(s => sanitizeProjectState({...s, project: {...s.project, ...project}, surveyAnswers, pctHistory, groups, adkarByCategory, actions}));
+        setToast("Wczytano plik Excel: " + file.name);
+      } catch(e){ alert("Nie udało się wczytać tego pliku — rozpoznawany jest tylko format z przycisku „Eksport Excel”."); }
+    };
+    reader.readAsArrayBuffer(file);
   }
 
   /* -------- drobne mutatory -------- */
@@ -1050,7 +1212,7 @@ function App(){
     if ((actionsByCategory[categoryId]||[]).length >= MAX_ACTIONS_PER_CATEGORY) return;
     setState(s => ({...s, actions: [...s.actions, {
       id:cryptoId(), categoryId, dzialanie:"", kamien:"", termin:"", odpowiedzialny:"",
-      weryfikacja:"", kanaly:"", flexiRef:"", status:"Do zaplanowania",
+      weryfikacja:"", dodanoDoHarmonogramu:false, status:"Do zaplanowania",
     }]}));
   }
   function updateAction(id, key, value){
@@ -1099,6 +1261,9 @@ function App(){
           <input ref={fileInputRef} type="file" accept=".json" style={{display:"none"}}
             onChange={e => { if(e.target.files[0]) importJson(e.target.files[0]); e.target.value=""; }} />
           <button className="ghost" onClick={()=>fileInputRef.current.click()}>Wczytaj JSON</button>
+          <input ref={excelInputRef} type="file" accept=".xlsx" style={{display:"none"}}
+            onChange={e => { if(e.target.files[0]) importExcel(e.target.files[0]); e.target.value=""; }} />
+          <button className="ghost" onClick={()=>excelInputRef.current.click()}>Wczytaj Excel</button>
         </div>
       </header>
 
@@ -1129,7 +1294,7 @@ function App(){
         {tab==="ankieta" && <Ankieta answers={state.surveyAnswers} setAnswer={setSurveyAnswer} total={surveyTotal} level={level}/>}
         {tab==="checklisty" && canSeeChecklist && <Checklisty level={level} checklist={state.checklist12} toggle={toggleChecklist}/>}
         {tab==="diagnoza" && canSeeFullPlan && <Diagnoza
-          state={state} pctLatest={pctLatest} pctAvg={pctAvg} pctWeakestKey={pctWeakestKey}
+          state={state} pctLatest={pctLatest} pctAvg={pctAvg} pctWeakestAreas={pctWeakestAreas}
           setPct={setPct} addPctCheckpoint={addPctCheckpoint}
           addGroup={addGroup} updateGroup={updateGroup} removeGroup={removeGroup}
           setAdkar={setAdkar} categoryBarrier={categoryBarrier} adkarRollup={adkarRollup}
@@ -1144,7 +1309,7 @@ function App(){
         />}
         {tab==="pulpit" && canSeeFullPlan && <Pulpit
           project={state.project} level={level} surveyTotal={surveyTotal}
-          pctAvg={pctAvg} pctWeakestKey={pctWeakestKey} statusCounts={statusCounts} signals={signals}
+          pctAvg={pctAvg} pctWeakestAreas={pctWeakestAreas} statusCounts={statusCounts} signals={signals}
           goTo={setTab}
         />}
         {tab==="przewodnik" && <Przewodnik/>}
@@ -1487,30 +1652,57 @@ function Checklisty({level, checklist, toggle}){
   );
 }
 
-function Diagnoza({state, pctLatest, pctAvg, pctWeakestKey, setPct, addPctCheckpoint, addGroup, updateGroup, removeGroup, setAdkar, categoryBarrier, adkarRollup, usesOptionalCategory, enableOptionalCategory}){
+function Diagnoza({state, pctLatest, pctAvg, pctWeakestAreas, setPct, addPctCheckpoint, addGroup, updateGroup, removeGroup, setAdkar, categoryBarrier, adkarRollup, usesOptionalCategory, enableOptionalCategory}){
   const activeCategories = CATEGORIES.concat(usesOptionalCategory ? [OPTIONAL_CATEGORY] : []);
+  const missingCategory = state.groups.filter(g => !g.categoryId).length;
+  const missingWplyw = state.groups.filter(g => g.categoryId && !(g.wplyw||"").trim()).length;
   return (
     <React.Fragment>
       <div className="card">
         <h2>1. PCT — kondycja całego przedsięwzięcia</h2>
+        <p className="hint">
+          Ocena pokazuje, na ile przedsięwzięcie jest przygotowane nie tylko do dostarczenia rezultatów projektu,
+          ale również do ich skutecznego wdrożenia i wykorzystania w codziennej działalności organizacji.
+        </p>
         <p className="hint">Progi robocze (nie są oficjalnymi progami Prosci): 10–19 = wymaga działania, 20–24 = wymaga uwagi, 25–30 = mocny obszar. Zawsze reaguj na najsłabszy z czterech wyników.</p>
-        {state.pctHistory.map((p, idx) => (
-          <div key={p.id} className="action-row">
-            <div className="grid cols4">
-              <Field label="Data"><input type="date" value={p.data} onChange={e=>setPct(idx,"data",e.target.value)}/></Field>
-              <Field label="Punkt kontrolny"><input type="text" value={p.punktKontrolny} onChange={e=>setPct(idx,"punktKontrolny",e.target.value)}/></Field>
-              <Field label="Definicja sukcesu (1-30)"><input type="number" min="1" max="30" value={p.definicjaSukcesu} onChange={e=>setPct(idx,"definicjaSukcesu",e.target.value)}/></Field>
-              <Field label="Przywództwo / sponsoring (1-30)"><input type="number" min="1" max="30" value={p.przywodztwo} onChange={e=>setPct(idx,"przywodztwo",e.target.value)}/></Field>
-              <Field label="Zarządzanie projektem (1-30)"><input type="number" min="1" max="30" value={p.zarzadzanieProjektem} onChange={e=>setPct(idx,"zarzadzanieProjektem",e.target.value)}/></Field>
-              <Field label="Zarządzanie zmianą (1-30)"><input type="number" min="1" max="30" value={p.zarzadzanieZmiana} onChange={e=>setPct(idx,"zarzadzanieZmiana",e.target.value)}/></Field>
-              <Field label="Decyzja / działanie korygujące"><input type="text" value={p.decyzja} onChange={e=>setPct(idx,"decyzja",e.target.value)}/></Field>
-              <Field label="Kolejny przegląd"><input type="date" value={p.kolejnyPrzeglad} onChange={e=>setPct(idx,"kolejnyPrzeglad",e.target.value)}/></Field>
+        <details style={{marginBottom:14}}>
+          <summary style={{cursor:"pointer", fontWeight:600}}>Przykłady działań dla poszczególnych obszarów</summary>
+          <table style={{marginTop:8}}>
+            <thead><tr><th>Obszar</th><th>Przykład wpisu</th></tr></thead>
+            <tbody>{PCT_AREAS.map(a => <tr key={a.key}><th style={{width:200}}>{a.label}</th><td>{a.example}</td></tr>)}</tbody>
+          </table>
+        </details>
+        {state.pctHistory.map((p, idx) => {
+          const rowWeakest = computeWeakestPctAreas(p);
+          return (
+            <div key={p.id} className="action-row">
+              <div className="grid cols4">
+                <Field label="Data"><input type="date" value={p.data} onChange={e=>setPct(idx,"data",e.target.value)}/></Field>
+                <Field label="Punkt kontrolny"><input type="text" value={p.punktKontrolny} onChange={e=>setPct(idx,"punktKontrolny",e.target.value)}/></Field>
+                <Field label="Definicja sukcesu (1-30)"><input type="number" min="1" max="30" value={p.definicjaSukcesu} onChange={e=>setPct(idx,"definicjaSukcesu",e.target.value)}/></Field>
+                <Field label="Przywództwo / sponsoring (1-30)"><input type="number" min="1" max="30" value={p.przywodztwo} onChange={e=>setPct(idx,"przywodztwo",e.target.value)}/></Field>
+                <Field label="Zarządzanie projektem (1-30)"><input type="number" min="1" max="30" value={p.zarzadzanieProjektem} onChange={e=>setPct(idx,"zarzadzanieProjektem",e.target.value)}/></Field>
+                <Field label="Zarządzanie zmianą (1-30)"><input type="number" min="1" max="30" value={p.zarzadzanieZmiana} onChange={e=>setPct(idx,"zarzadzanieZmiana",e.target.value)}/></Field>
+              </div>
+              {rowWeakest.length > 0 && (
+                <div className="banner warn" style={{marginTop:10}}>
+                  <strong>Najsłabszy obszar: {rowWeakest.map(a=>a.label+" ("+a.value+"/30)").join(" i ")}</strong>
+                  {rowWeakest.map(a => <div key={a.key} style={{marginTop:4}}>{a.recommendation}</div>)}
+                </div>
+              )}
+              <div className="grid cols2" style={{marginTop:10}}>
+                <Field label="Działania usprawniające do kolejnego przeglądu"
+                  hint="Wpisz działania, które zostaną podjęte przed kolejnym przeglądem w celu poprawy najsłabiej ocenionego obszaru lub ograniczenia zidentyfikowanych ryzyk.">
+                  <input type="text" value={p.decyzja} onChange={e=>setPct(idx,"decyzja",e.target.value)}/>
+                </Field>
+                <Field label="Kolejny przegląd"><input type="date" value={p.kolejnyPrzeglad} onChange={e=>setPct(idx,"kolejnyPrzeglad",e.target.value)}/></Field>
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
         <button className="small" onClick={addPctCheckpoint}>+ Kolejny pomiar</button>
         <div className="banner info flex-between" style={{marginTop:14}}>
-          <div>Średnia ostatniego pomiaru: <strong>{pctAvg!=null ? pctAvg.toFixed(1) : "–"}</strong>{pctWeakestKey ? (" · Najsłabszy obszar: " + pctWeakestKey) : ""}</div>
+          <div>Średnia ostatniego pomiaru: <strong>{pctAvg!=null ? pctAvg.toFixed(1) : "–"}</strong>{pctWeakestAreas.length ? (" · Najsłabszy obszar: " + pctWeakestAreas.map(a=>a.label).join(" i ")) : ""}</div>
           <Badge tone={pctTone(pctAvg)}>{PCT_TONE_LABELS[pctTone(pctAvg)]}</Badge>
         </div>
       </div>
@@ -1521,10 +1713,17 @@ function Diagnoza({state, pctLatest, pctAvg, pctWeakestKey, setPct, addPctCheckp
           <button className="small" onClick={addGroup}>+ Dodaj grupę</button>
         </div>
         <p className="hint">Wpisz grupy osób, których charakter lub sposób pracy może ulec zmianie, i przypisz każdą do jednej z kategorii.</p>
-        {state.groups.some(g => !g.categoryId) && (
+        <details style={{marginBottom:10}}>
+          <summary style={{cursor:"pointer", fontWeight:600}}>Co kryje się pod poszczególnymi kategoriami?</summary>
+          <table style={{marginTop:8}}>
+            <tbody>{ALL_CATEGORIES.map(c => <tr key={c.id}><th style={{width:280}}>{c.label}</th><td>{c.hint}</td></tr>)}</tbody>
+          </table>
+        </details>
+        {(missingCategory>0 || missingWplyw>0) && (
           <div className="banner warn">
-            {state.groups.filter(g => !g.categoryId).length} grup(y) bez przypisanej kategorii — dopóki jej nie wybierzesz,
-            grupa nie trafi do diagnozy ADKAR ani do Planu działań.
+            {missingCategory>0 && <div>{missingCategory} grup(y) bez przypisanej kategorii.</div>}
+            {missingWplyw>0 && <div>{missingWplyw} grup(y) z kategorią, ale bez wypełnionego pola „Co zmienia się w ich pracy?”.</div>}
+            Dopóki oba pola nie są uzupełnione, grupa nie trafi do diagnozy ADKAR ani do Planu działań.
           </div>
         )}
         <table>
@@ -1537,7 +1736,7 @@ function Diagnoza({state, pctLatest, pctAvg, pctWeakestKey, setPct, addPctCheckp
                 <td>
                   <select value={g.categoryId} onChange={e=>updateGroup(g.id,"categoryId",e.target.value)}>
                     <option value="">— wybierz kategorię —</option>
-                    {activeCategories.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
+                    {activeCategories.map(c => <option key={c.id} value={c.id} title={c.hint}>{c.label}</option>)}
                   </select>
                 </td>
                 <td><button className="small" onClick={()=>removeGroup(g.id)}>Usuń</button></td>
@@ -1553,17 +1752,20 @@ function Diagnoza({state, pctLatest, pctAvg, pctWeakestKey, setPct, addPctCheckp
 
       <div className="card">
         <h2>3. Ocena ADKAR dla każdej kategorii</h2>
+        <p className="hint">
+          ADKAR ocenia, na ile każda kategoria jest gotowa na zmianę: <strong>Awareness</strong> (świadomość
+          potrzeby zmiany), <strong>Desire</strong> (chęć wspierania i uczestnictwa), <strong>Knowledge</strong> (wiedza,
+          jak pracować w nowy sposób), <strong>Ability</strong> (praktyczne umiejętności), <strong>Reinforcement</strong> (trwałe
+          stosowanie). Wynik przekłada się bezpośrednio na Plan działań — tam w pierwszej kolejności zajmujemy się
+          najsłabiej ocenionym obszarem każdej kategorii.
+        </p>
         <p className="hint">Oceń każdą kategorię w skali 1–5. 1–2 oznacza istotną barierę, 3 wymaga uwagi, 4–5 to dobra gotowość.</p>
         {activeCategories.map(c => {
           const d = state.adkarByCategory[c.id];
-          const barrier = categoryBarrier(c.id);
+          const barriers = categoryBarrier(c.id);
           const catGroups = state.groups.filter(g=>g.categoryId===c.id).map(g=>g.nazwa).filter(Boolean);
-          return (
-            <div key={c.id} className="action-row">
-              <div className="top">
-                <strong>{c.label}</strong>
-                {barrier && <Badge tone="orange">Największa bariera: {barrier.label}</Badge>}
-              </div>
+          const body = (
+            <React.Fragment>
               {catGroups.length>0 && <div className="pill-list" style={{marginBottom:10}}>{catGroups.map(g=><span key={g} className="pill">{g}</span>)}</div>}
               <div className="grid cols2">
                 <div>
@@ -1575,14 +1777,35 @@ function Diagnoza({state, pctLatest, pctAvg, pctWeakestKey, setPct, addPctCheckp
                   ))}
                 </div>
                 <div>
-                  <Field label="Wniosek / co trzeba osiągnąć">
-                    <textarea value={d.wniosek} onChange={e=>setAdkar(c.id,"wniosek",e.target.value)} placeholder="Opisz własnymi słowami, co trzeba osiągnąć w tej kategorii."/>
+                  <Field label="Co powinno się zmienić dla tej grupy?"
+                    hint="Opisz, jaki jest docelowy, pożądany stan (nie działanie — to zaplanujesz w Planie działań).">
+                    <textarea value={d.wniosek} onChange={e=>setAdkar(c.id,"wniosek",e.target.value)} placeholder="np. Pracownicy wiedzą, jak wykonywać proces w nowym systemie i stosują go w codziennej pracy."/>
                   </Field>
-                  {barrier && (
-                    <p className="hint">Podpowiedź dla bariery „{barrier.label}”: {ADKAR_SUGGESTIONS[barrier.id]}</p>
-                  )}
+                  {barriers.length>0 && barriers.map(b => (
+                    <div key={b.id} className="hint" style={{marginBottom:6}}>
+                      <strong>Bariera „{b.label}”</strong> — {ADKAR_BARRIER_INTRO[b.id]} {ADKAR_SUGGESTIONS[b.id]}
+                      <div>Przykładowe działania: {ADKAR_EXAMPLES[b.id].join(", ")}.</div>
+                    </div>
+                  ))}
                 </div>
               </div>
+            </React.Fragment>
+          );
+          if (catGroups.length===0){
+            return (
+              <details key={c.id} className="action-row">
+                <summary style={{cursor:"pointer"}}><strong>{c.label}</strong> <span className="muted">(brak przypisanych grup)</span></summary>
+                <div style={{marginTop:10}}>{body}</div>
+              </details>
+            );
+          }
+          return (
+            <div key={c.id} className="action-row">
+              <div className="top">
+                <strong>{c.label}</strong>
+                {barriers.length>0 && <Badge tone="orange">Największa bariera: {barriers.map(b=>b.label).join(" i ")}</Badge>}
+              </div>
+              {body}
             </div>
           );
         })}
@@ -1611,10 +1834,10 @@ function PlanDzialan({actionsByCategory, categoryBarrier, adkarByCategory, group
   return (
     <div className="card">
       <h2>Plan działań</h2>
-      <p className="hint">Plan na poziomie kategorii — maksymalnie {MAX_ACTIONS_PER_CATEGORY} działania na kategorię. Wpisuj własne, konkretne działania (bez gotowych podpowiedzi) i od razu dodaj kanały komunikacji w tym samym wierszu.</p>
+      <p className="hint">Dla każdej kategorii wybierz maksymalnie {MAX_ACTIONS_PER_CATEGORY} najważniejsze działania, które w największym stopniu pomogą usunąć zidentyfikowane bariery.</p>
       {activeCategories.map(c => {
         const actions = actionsByCategory[c.id] || [];
-        const barrier = categoryBarrier(c.id);
+        const barriers = categoryBarrier(c.id);
         const wniosek = adkarByCategory[c.id]?.wniosek;
         const catGroups = groups.filter(g=>g.categoryId===c.id).map(g=>g.nazwa).filter(Boolean);
         const atLimit = actions.length >= MAX_ACTIONS_PER_CATEGORY;
@@ -1623,12 +1846,21 @@ function PlanDzialan({actionsByCategory, categoryBarrier, adkarByCategory, group
             <div className="flex-between">
               <div>
                 <strong>{c.label}</strong>
-                {barrier && <span className="tag" style={{marginLeft:8}}>bariera: {barrier.label}</span>}
+                {barriers.length>0 && <span className="tag" style={{marginLeft:8}}>bariera: {barriers.map(b=>b.label).join(" i ")}</span>}
               </div>
               <button className="small" disabled={atLimit} onClick={()=>addAction(c.id)}>+ Dodaj działanie ({actions.length}/{MAX_ACTIONS_PER_CATEGORY})</button>
             </div>
             {catGroups.length>0 && <div className="pill-list" style={{margin:"6px 0"}}>{catGroups.map(g=><span key={g} className="pill">{g}</span>)}</div>}
-            {wniosek && <p className="hint" style={{margin:"4px 0 10px"}}>Wniosek z diagnozy: {wniosek}</p>}
+            {wniosek && <p className="hint" style={{margin:"4px 0 10px"}}>Co powinno się zmienić dla tej grupy: {wniosek}</p>}
+            {barriers.length>0 && (
+              <div style={{margin:"4px 0 10px"}}>
+                {barriers.map(b => (
+                  <p key={b.id} className="hint" style={{margin:"2px 0"}}>
+                    Przykładowe działania na barierę „{b.label}”: {ADKAR_EXAMPLES[b.id].join(", ")}.
+                  </p>
+                ))}
+              </div>
+            )}
             {atLimit && <div className="banner warn">Limit {MAX_ACTIONS_PER_CATEGORY} działań na kategorię. Rozważ połączenie działań lub rozbicie na etapy w ramach istniejących wierszy, zamiast dodawać kolejne.</div>}
 
             {actions.map(a => (
@@ -1642,30 +1874,39 @@ function PlanDzialan({actionsByCategory, categoryBarrier, adkarByCategory, group
                   <Field label="Jak sprawdzimy gotowość?"><textarea value={a.weryfikacja} onChange={e=>updateAction(a.id,"weryfikacja",e.target.value)} placeholder="Po czym poznamy, że grupa osiągnęła gotowość?"/></Field>
                 </div>
                 <div className="grid cols3">
-                  <Field label="Kamień milowy / etap"><input type="text" list="milestones-dl" value={a.kamien} onChange={e=>updateAction(a.id,"kamien",e.target.value)}/></Field>
-                  <Field label="Termin"><input type="date" value={a.termin} onChange={e=>updateAction(a.id,"termin",e.target.value)}/></Field>
-                  <Field label="Odpowiedzialny"><input type="text" list="team-dl" value={a.odpowiedzialny} onChange={e=>updateAction(a.id,"odpowiedzialny",e.target.value)}/></Field>
-                </div>
-                <div className="grid cols3">
-                  <Field label="Kanały komunikacji (oddziel przecinkami)">
-                    <input type="text" list="channels-dl" value={a.kanaly} onChange={e=>updateAction(a.id,"kanaly",e.target.value)} placeholder="np. mail, Teams, spotkanie"/>
+                  <Field label="Kamień milowy / etap"
+                    hint="Wskaż etap projektu lub kamień milowy, z którym powiązane jest to działanie (np. rozpoczęcie szkoleń, uruchomienie rozwiązania, pilotaż, przejście na nowy proces, stabilizacja po wdrożeniu).">
+                    <input type="text" list="milestones-dl" value={a.kamien} onChange={e=>updateAction(a.id,"kamien",e.target.value)}/>
                   </Field>
-                  <Field label="Zadanie w Flexi (nr / link)"><input type="text" value={a.flexiRef} onChange={e=>updateAction(a.id,"flexiRef",e.target.value)} placeholder="np. FLEXI-123"/></Field>
+                  <Field label="Termin"><input type="date" value={a.termin} onChange={e=>updateAction(a.id,"termin",e.target.value)}/></Field>
+                  <Field label="Odpowiedzialny"
+                    hint="Wskaż właściciela działania, który odpowiada za jego realizację, koordynację zaangażowanych osób oraz monitorowanie postępów.">
+                    <input type="text" list="team-dl" value={a.odpowiedzialny} onChange={e=>updateAction(a.id,"odpowiedzialny",e.target.value)}/>
+                  </Field>
+                </div>
+                <div className="grid cols2">
                   <Field label="Status">
                     <select value={a.status} onChange={e=>updateAction(a.id,"status",e.target.value)}>
                       {STATUS_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
                     </select>
                   </Field>
+                  <Field label="">
+                    <label style={{display:"flex", alignItems:"center", gap:8, fontWeight:400}}>
+                      <input type="checkbox" checked={a.dodanoDoHarmonogramu} onChange={e=>updateAction(a.id,"dodanoDoHarmonogramu",e.target.checked)}/>
+                      Dodano do harmonogramu projektu
+                    </label>
+                  </Field>
                 </div>
+                <p className="hint" style={{margin:"6px 0 0"}}>
+                  Pamiętaj: działania zaplanowane w tym miejscu powinny być dodane do harmonogramu projektu.
+                  Kluczowe działania należy uwzględnić również w planie projektu we FlexiProject.
+                </p>
               </div>
             ))}
             {actions.length===0 && <p className="muted">Brak działań w tej kategorii.</p>}
           </div>
         );
       })}
-      <datalist id="channels-dl">
-        {CHANNEL_SUGGESTIONS.map(c => <option key={c} value={c}/>)}
-      </datalist>
       <datalist id="milestones-dl">
         {milestones.map(m => <option key={m.id} value={m.nazwa}/>)}
       </datalist>
@@ -1676,7 +1917,7 @@ function PlanDzialan({actionsByCategory, categoryBarrier, adkarByCategory, group
   );
 }
 
-function Pulpit({project, level, surveyTotal, pctAvg, pctWeakestKey, statusCounts, signals, goTo}){
+function Pulpit({project, level, surveyTotal, pctAvg, pctWeakestAreas, statusCounts, signals, goTo}){
   const wipOver = statusCounts["W realizacji"] > MAX_WIP_ACTIONS;
   return (
     <React.Fragment>
@@ -1688,7 +1929,7 @@ function Pulpit({project, level, surveyTotal, pctAvg, pctWeakestKey, statusCount
           <div><div className="muted">Typ projektu</div><div>{project.typProjektu || "–"}</div></div>
           <div><div className="muted">Skala zmiany</div><div><Badge tone={level.color}>{level.complete ? (surveyTotal + " pkt — poziom " + level.poziom) : "ankieta nieukończona"}</Badge></div></div>
           <div><div className="muted">PCT — średnia</div><div><Badge tone={pctTone(pctAvg)}>{pctAvg!=null?pctAvg.toFixed(1):"brak danych"}</Badge></div></div>
-          <div><div className="muted">PCT — najsłabszy obszar</div><div>{pctWeakestKey || "–"}</div></div>
+          <div><div className="muted">PCT — najsłabszy obszar</div><div>{pctWeakestAreas.length ? pctWeakestAreas.map(a=>a.label).join(" i ") : "–"}</div></div>
         </div>
       </div>
 
@@ -1701,7 +1942,7 @@ function Pulpit({project, level, surveyTotal, pctAvg, pctWeakestKey, statusCount
             <div className="muted">w realizacji {wipOver ? "(limit " + MAX_WIP_ACTIONS + "!)" : ""}</div>
           </div>
           <div className="action-row" style={{textAlign:"center"}}><div style={{fontSize:24, fontWeight:700}}>{statusCounts["Zablokowane"]}</div><div className="muted">zablokowane</div></div>
-          <div className="action-row" style={{textAlign:"center"}}><div style={{fontSize:24, fontWeight:700}}>{statusCounts.linkedToFlexi}</div><div className="muted">powiązane z Flexi</div></div>
+          <div className="action-row" style={{textAlign:"center"}}><div style={{fontSize:24, fontWeight:700}}>{statusCounts.dodaneDoHarmonogramu}</div><div className="muted">dodane do harmonogramu</div></div>
         </div>
         <p className="hint">Zasada WIP: maksymalnie {MAX_WIP_ACTIONS} działań ze statusem „W realizacji” jednocześnie — pozostałe czekają jako „Do zaplanowania”.</p>
       </div>
