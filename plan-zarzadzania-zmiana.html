@@ -854,7 +854,7 @@ function App(){
     const ok = saveVersions(next);
     setToast(ok
       ? "Wersja zapisana: " + entry.name
-      : "Uwaga: przeglądarka zablokowała zapis na dysku — wersja jest widoczna tylko do zamknięcia karty. Użyj „Eksport Excel”, żeby jej nie stracić.");
+      : "Uwaga: przeglądarka zablokowała zapis na dysku — wersja jest widoczna tylko do zamknięcia karty. Użyj „Zapisz plik”, żeby jej nie stracić.");
   }
   function loadVersion(entry){
     setState(sanitizeProjectState(entry.data));
@@ -1137,11 +1137,12 @@ function App(){
     a.click(); URL.revokeObjectURL(url);
   }
 
-  // Wczytuje plik wyeksportowany przyciskiem "Eksport Excel" z powrotem do stanu aplikacji —
-  // to jedyny sposób zapisu/odczytu pliku w tym narzędziu (uwaga zespołu: "muszę ściągnąć zawsze
-  // tego jasona... Excel też by mógł być" — Excel jest znajomy, JSON nie). Rozpoznaje TYLKO
-  // format wygenerowany przez "Eksport Excel" (te same nazwy arkuszy i nagłówki kolumn) —
-  // dowolny inny plik .xlsx zostanie odrzucony z komunikatem, zamiast zgadywać układ.
+  // Wczytuje plik zapisany przyciskiem "Zapisz plik" (Excel, ale nazwane bez żargonu formatu w
+  // UI — patrz przycisk) z powrotem do stanu aplikacji — to jedyny sposób zapisu/odczytu pliku
+  // w tym narzędziu (uwaga zespołu: "muszę ściągnąć zawsze tego jasona... Excel też by mógł być"
+  // — Excel jest znajomy, JSON nie, a samo słowo "eksport/format" jeszcze nikomu nic nie mówi).
+  // Rozpoznaje TYLKO układ wygenerowany przez "Zapisz plik" (te same nazwy arkuszy i nagłówki
+  // kolumn) — dowolny inny plik .xlsx zostanie odrzucony z komunikatem, zamiast zgadywać układ.
   function importExcel(file){
     const reader = new FileReader();
     reader.onload = () => {
@@ -1243,8 +1244,8 @@ function App(){
           ...s, project: {...s.project, ...project}, surveyAnswers, pctHistory, groups, adkarByCategory, actions,
           usesOptionalCategory, milestones, teamMembers, risks, deliverables, budgetItems, links, maintenanceCosts, checklist12,
         }));
-        setToast("Wczytano plik Excel: " + file.name);
-      } catch(e){ alert("Nie udało się wczytać tego pliku — rozpoznawany jest tylko format z przycisku „Eksport Excel”."); }
+        setToast("Wczytano plik: " + file.name);
+      } catch(e){ alert("Nie udało się wczytać tego pliku — rozpoznawany jest tylko plik zapisany przyciskiem „Zapisz plik”."); }
     };
     reader.readAsArrayBuffer(file);
   }
@@ -1352,10 +1353,16 @@ function App(){
         <div className="toolbar">
           <button className="ghost" onClick={()=>setShowVersions(true)}>Wersje ({versions.length})</button>
           <button className="ghost" onClick={()=>persistAsNewVersion(state.project.nazwa)}>Zapisz wersję</button>
-          <button className="primary" onClick={exportExcel}>Eksport Excel</button>
+          <button className="primary" onClick={exportExcel}
+            title="Pobiera kopię projektu jako plik (Excel) — zachowaj go, wyślij e-mailem albo otwórz na innym komputerze.">
+            Zapisz plik
+          </button>
           <input ref={excelInputRef} type="file" accept=".xlsx" style={{display:"none"}}
             onChange={e => { if(e.target.files[0]) importExcel(e.target.files[0]); e.target.value=""; }} />
-          <button className="ghost" onClick={()=>excelInputRef.current.click()}>Wczytaj Excel</button>
+          <button className="ghost" onClick={()=>excelInputRef.current.click()}
+            title="Wczytuje projekt z pliku zapisanego wcześniej przyciskiem „Zapisz plik”.">
+            Otwórz plik
+          </button>
         </div>
       </header>
 
@@ -1369,7 +1376,7 @@ function App(){
         {!storageOk && (
           <div className="banner warn">
             Ta przeglądarka blokuje lokalny zapis (localStorage) — np. tryb prywatny albo ustawienia bezpieczeństwa.
-            „Zapisz wersję” nie przetrwa zamknięcia karty. Używaj „Eksport Excel” / „Wczytaj Excel”, żeby nie stracić pracy.
+            „Zapisz wersję” nie przetrwa zamknięcia karty. Używaj „Zapisz plik” / „Otwórz plik”, żeby nie stracić pracy.
           </div>
         )}
         {tab==="dane" && <DaneProjektu project={state.project} setField={setProjectField}
