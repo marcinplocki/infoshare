@@ -215,14 +215,21 @@ const PCT_QUESTIONS = {
   ],
 };
 
-// Szybka ocena (poziom 2) używa podzbioru 2 najbardziej rozstrzygających pytań na obszar z
+// Szybka ocena (poziom 2) używa podzbioru 3 najbardziej różnicujących pytań na obszar z
 // powyższego zestawu — ten sam tekst, żeby nie dublować treści do utrzymania w dwóch miejscach.
+// Dobór celowo omija pytania, na które odpowiedź jest z góry przesądzona przez samą kartę projektu
+// (np. sponsor jest na karcie zawsze wskazany z imienia — pytanie o to nic by nie różnicowało).
 const QUICK_ASSESSMENT_QUESTION_INDEXES = {
-  definicjaSukcesu: [0, 2],
-  przywodztwo: [0, 1],
-  zarzadzanieProjektem: [0, 2],
-  zarzadzanieZmiana: [0, 2],
+  definicjaSukcesu: [0, 2, 4],
+  przywodztwo: [1, 2, 4],
+  zarzadzanieProjektem: [0, 2, 3],
+  zarzadzanieZmiana: [0, 2, 4],
 };
+
+// Legenda skali pokazywana nad zestawem pytań (pełny PCT i szybka ocena) — bez niej "3" nie ma
+// wspólnego znaczenia między osobami oceniającymi ani między kolejnymi przeglądami w czasie.
+const LIKERT_SCALE_LEGEND = "Odpowiadaj w skali 1–5: 1 – nie/w ogóle, 2 – w niewielkim stopniu, 3 – częściowo, 4 – w dużym stopniu, 5 – tak, w pełni.";
+const LIKERT_SCALE_LABELS = ["1 – nie/w ogóle", "2 – w niewielkim stopniu", "3 – częściowo", "4 – w dużym stopniu", "5 – tak, w pełni"];
 
 function emptyPctAnswers(){
   const o = {};
@@ -235,8 +242,8 @@ function emptyQuickAnswers(){
   return o;
 }
 // Wynik obszaru = suma odpowiedzi (1-5 każda), znormalizowana do skali 1-30 — tak samo dla pełnej
-// oceny (6 pytań x maks. 5 = 30, współczynnik 1) jak i szybkiej (2 pytania x maks. 5 = 10,
-// współczynnik 3). Dzięki temu obie oceny działają na wspólnej skali z tymi samymi progami
+// oceny (6 pytań x maks. 5 = 30, współczynnik 1) jak i szybkiej (3 pytania x maks. 5 = 15,
+// współczynnik 2). Dzięki temu obie oceny działają na wspólnej skali z tymi samymi progami
 // (pctTone), tą samą logiką najsłabszego obszaru (computeWeakestPctAreas) i tym samym wykresem
 // radarowym — bez przepisywania żadnego z nich. Wynik obszaru pojawia się dopiero, gdy WSZYSTKIE
 // jego pytania mają odpowiedź (tak jak dawniej pole liczbowe było puste albo wypełnione w całości).
@@ -430,6 +437,11 @@ function deserializeAnswers(str, length){
     const v = parts[i];
     return (v===undefined || v==="") ? null : Number(v);
   });
+}
+// Liczba realnie zapisanych pozycji w komórce (nie długość docelowej tablicy) — używana do
+// wykrycia pliku z poprzedniej wersji, gdzie dany zestaw pytań miał inną liczbę pytań.
+function countSerializedAnswers(str){
+  return (str==null || str==="") ? 0 : String(str).split(",").length;
 }
 
 // Domyślne/starsze dane (localStorage sprzed v1.7, częściowy import Excela) mogą nie mieć
@@ -916,12 +928,15 @@ function Badge({tone, children}){
   return <span className={"badge " + tone}>{children}</span>;
 }
 
-function Likert({value, onChange, max=5}){
+// `labels` (opcjonalny) to natywny tooltip (title) na każdym przycisku — nie zajmuje miejsca w
+// layoucie, więc nie psuje układu przy długich pytaniach (w przeciwieństwie do podpisów na stałe
+// widocznych pod przyciskami, które w gęstej liście pytań zajęłyby dodatkowy wiersz).
+function Likert({value, onChange, max=5, labels}){
   return (
     <div style={{display:"flex", gap:6}}>
       {Array.from({length:max}, (_,i)=>i+1).map(n => (
         <button key={n} type="button" className="small"
-          onClick={()=>onChange(n)}
+          onClick={()=>onChange(n)} title={labels ? labels[n-1] : undefined}
           style={{
             width:30, height:30, padding:0, fontWeight:700,
             background: value===n ? "var(--accent)" : "#fff",
@@ -978,7 +993,9 @@ function App(){
 
   useEffect(()=>{
     if(!toast) return;
-    const t = setTimeout(()=>setToast(null), 2600);
+    // Dłuższe komunikaty (np. ostrzeżenie o pominiętej szybkiej ocenie ze starszej wersji pliku)
+    // dostają więcej czasu na ekranie niż krótkie potwierdzenia typu "Zapisano".
+    const t = setTimeout(()=>setToast(null), toast.length > 60 ? 6000 : 2600);
     return ()=>clearTimeout(t);
   }, [toast]);
 
@@ -1474,11 +1491,20 @@ function App(){
             });
           }
         }
+        // v1.7 zapisywał 2 odpowiedzi/obszar dla innego podzbioru pytań niż v1.8 (3 odpowiedzi, inne
+        // indeksy) — podstawienie starych wartości pod nowe pozycje odpowiadałoby na INNE pytania,
+        // niż faktycznie zadano. Bezpieczniej zignorować niezgodną szybką ocenę niż podstawić
+        // niewłaściwe dane; użytkownik dostaje o tym osobny komunikat zamiast cichej podmiany.
         const quickAssessment = emptyQuickAnswers();
+        let quickAssessmentOutdated = false;
         xlsReadSection(diag, "SZYBKA OCENA GOTOWOŚCI PRZEDSIĘWZIĘCIA (POZIOM 2)", r => r).forEach(r => {
           const area = PCT_AREAS.find(a => a.label === (r[0]||"").toString().trim());
           if (!area) return;
-          quickAssessment[area.key] = deserializeAnswers(r[2], QUICK_ASSESSMENT_QUESTION_INDEXES[area.key].length);
+          const expected = QUICK_ASSESSMENT_QUESTION_INDEXES[area.key].length;
+          const found = countSerializedAnswers(r[2]);
+          if (found === 0) return;
+          if (found !== expected){ quickAssessmentOutdated = true; return; }
+          quickAssessment[area.key] = deserializeAnswers(r[2], expected);
         });
         const groups = [];
         if (groupsHeaderIdx !== -1){
@@ -1517,11 +1543,26 @@ function App(){
           }
         }
 
+        // Import może od razu "dokończyć" ankietę (plik miał już komplet odpowiedzi) — bez tego
+        // efekt "Ustalono poziom X" (poniżej, reaguje na zmianę level.poziom) nadpisałby ten toast
+        // milisekundy później, więc np. ostrzeżenie o pominiętej szybkiej ocenie nigdy nie byłoby
+        // widoczne. Aktualizujemy ref PRZED setState, żeby ten efekt uznał poziom za już znany.
+        const importedAllIds = [...SURVEY.partI.map(q=>q.id), ...SURVEY.partII_items.map(it=>it.id), SURVEY.partII_extra.id, ...SURVEY.partIII.map(q=>q.id)];
+        let importedTotal = 0, importedAnswered = 0;
+        importedAllIds.forEach(id => {
+          const v = surveyAnswers[id];
+          if (v !== null && v !== undefined && v !== ""){ importedTotal += Number(v); importedAnswered += 1; }
+        });
+        const importedLevel = surveyLevel(importedTotal, importedAnswered);
+        prevPoziomRef.current = importedLevel.complete ? importedLevel.poziom : null;
+
         setState(s => sanitizeProjectState({
           ...s, project: {...s.project, ...project}, surveyAnswers, pctHistory, quickAssessment, groups, adkarByCategory, actions,
           usesOptionalCategory, milestones, teamMembers, risks, deliverables, budgetItems, links, maintenanceCosts, checklist12,
         }));
-        setToast("Wczytano plik: " + file.name);
+        setToast(quickAssessmentOutdated
+          ? "Wczytano plik: " + file.name + ". Plik pochodzi ze starszej wersji — szybka ocena gotowości (poziom 2) została pominięta, bo zestaw pytań się zmienił. Pozostałe dane wczytano poprawnie."
+          : "Wczytano plik: " + file.name);
       } catch(e){ alert("Nie udało się wczytać tego pliku — rozpoznawany jest tylko plik zapisany przyciskiem „Zapisz plik”."); }
     };
     reader.readAsArrayBuffer(file);
@@ -1729,7 +1770,7 @@ function App(){
         </div>
       </dialog>
 
-      {toast && <div style={{position:"fixed", bottom:16, right:16, background:"var(--ink)", color:"#fff", padding:"10px 16px", borderRadius:8, fontSize:13}}>{toast}</div>}
+      {toast && <div style={{position:"fixed", bottom:16, right:16, maxWidth:360, background:"var(--ink)", color:"#fff", padding:"10px 16px", borderRadius:8, fontSize:13}}>{toast}</div>}
 
       <footer className="app">Plan Zarządzania Zmianą · Grupa Merito · wersja robocza</footer>
     </React.Fragment>
@@ -2097,7 +2138,7 @@ function Checklisty({level, checklist, toggle}){
 // wierzchołkiem — trójkąt ma sens tylko dla trzech wierzchołków (dorzucenie czwartego jako węzła
 // centralnego zniekształca kształt znany z materiałów Prosci), a radar naturalnie traktuje
 // wszystkie 4 obszary jako równoważne osie i skaluje się identycznie do pełnej oceny (6
-// pytań/obszar) i szybkiej (2 pytania/obszar), bo obie są znormalizowane do wspólnej skali 1-30
+// pytań/obszar) i szybkiej (3 pytania/obszar), bo obie są znormalizowane do wspólnej skali 1-30
 // (patrz pctAreaScore). `scores` to obiekt {obszar: liczba|null} — dokładnie to, co zwraca
 // pctScores/quickScores i co dostaje computeWeakestPctAreas, więc wykres zawsze pokazuje to samo,
 // co baner tekstowy nad/pod nim.
@@ -2184,9 +2225,10 @@ function Diagnoza({state, pctAvg, pctWeakestAreas, pctLatestScores, showPct, set
           <h2>{assessmentStep}. PCT — kondycja całego przedsięwzięcia</h2>
           <p className="hint">
             Ocena pokazuje, na ile przedsięwzięcie jest przygotowane nie tylko do dostarczenia rezultatów projektu,
-            ale również do ich skutecznego wdrożenia i wykorzystania w codziennej działalności organizacji. Na każde
-            pytanie odpowiadasz w skali 1–5 — wynik obszaru (1–30) liczy się sam z sześciu odpowiedzi.
+            ale również do ich skutecznego wdrożenia i wykorzystania w codziennej działalności organizacji. Wynik
+            obszaru (1–30) liczy się sam z sześciu odpowiedzi.
           </p>
+          <p className="hint">{LIKERT_SCALE_LEGEND}</p>
           <p className="hint">Progi robocze (nie są oficjalnymi progami Prosci): 10–19 = wymaga działania, 20–24 = wymaga uwagi, 25–30 = mocny obszar. Zawsze reaguj na najsłabszy z czterech wyników.</p>
           <details style={{marginBottom:14}}>
             <summary style={{cursor:"pointer", fontWeight:600}}>Przykłady działań dla poszczególnych obszarów</summary>
@@ -2218,7 +2260,7 @@ function Diagnoza({state, pctAvg, pctWeakestAreas, pctLatestScores, showPct, set
                     {PCT_QUESTIONS[a.key].map((q, qi) => (
                       <div key={qi} className="flex-between" style={{marginBottom:8}}>
                         <div style={{maxWidth:520}}>{q}</div>
-                        <Likert value={p.answers[a.key][qi]} onChange={v=>setPctAnswer(idx, a.key, qi, v)}/>
+                        <Likert value={p.answers[a.key][qi]} onChange={v=>setPctAnswer(idx, a.key, qi, v)} labels={LIKERT_SCALE_LABELS}/>
                       </div>
                     ))}
                   </div>
@@ -2251,10 +2293,10 @@ function Diagnoza({state, pctAvg, pctWeakestAreas, pctLatestScores, showPct, set
         <div className="card">
           <h2>{assessmentStep}. Szybka ocena gotowości przedsięwzięcia</h2>
           <p className="hint">
-            Skrócony zestaw pytań (2 na obszar zamiast 6) — pokazuje, czy przedsięwzięcie jest gotowe nie tylko do
-            dostarczenia rezultatów projektu, ale też do ich skutecznego wykorzystania w codziennej pracy. Na każde
-            pytanie odpowiadasz w skali 1–5.
+            Skrócony zestaw pytań (3 na obszar zamiast 6) — pokazuje, czy przedsięwzięcie jest gotowe nie tylko do
+            dostarczenia rezultatów projektu, ale też do ich skutecznego wykorzystania w codziennej pracy.
           </p>
+          <p className="hint">{LIKERT_SCALE_LEGEND}</p>
           {PCT_AREAS.map(a => (
             <div key={a.key} style={{marginBottom:16}}>
               <div className="flex-between" style={{marginBottom:6}}>
@@ -2264,7 +2306,7 @@ function Diagnoza({state, pctAvg, pctWeakestAreas, pctLatestScores, showPct, set
               {QUICK_ASSESSMENT_QUESTION_INDEXES[a.key].map((qIdx, i) => (
                 <div key={qIdx} className="flex-between" style={{marginBottom:8}}>
                   <div style={{maxWidth:520}}>{PCT_QUESTIONS[a.key][qIdx]}</div>
-                  <Likert value={state.quickAssessment[a.key][i]} onChange={v=>setQuickAnswer(a.key, i, v)}/>
+                  <Likert value={state.quickAssessment[a.key][i]} onChange={v=>setQuickAnswer(a.key, i, v)} labels={LIKERT_SCALE_LABELS}/>
                 </div>
               ))}
             </div>
