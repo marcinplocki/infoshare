@@ -1415,7 +1415,7 @@ function App(){
   const prevPoziomRef = useRef(null);
   useEffect(()=>{
     if (level.complete && prevPoziomRef.current !== level.poziom){
-      const nextLabel = level.poziom === 3 ? "Diagnoza" : "Checklisty";
+      const nextLabel = level.poziom >= 2 ? "Diagnoza" : "Checklisty";
       setToast("Ustalono poziom " + level.poziom + " (" + level.label + "). Przejdź do zakładki „" + nextLabel + "”, żeby zobaczyć następny krok.");
     }
     prevPoziomRef.current = level.complete ? level.poziom : null;
@@ -1616,7 +1616,7 @@ function Ankieta({answers, setAnswer, total, level, goTo}){
       <p className="hint">Celem ankiety jest określenie skali zmiany i jej wpływu na pracowników, aby dobrać odpowiednie podejście do zarządzania zmianą w Twoim projekcie.</p>
       <p className="hint">Odpowiadaj z perspektywy wpływu zmiany na codzienną pracę ludzi objętych zmianą.</p>
       <p className="hint">Jeśli masz wątpliwości, skontaktuj się z PMO.</p>
-      <p className="hint">Łącznie 65 punktów. 0–25 = mała zmiana (niskie ryzyko), 26–45 = średnia (średnie ryzyko), &gt;45 = duża (wysokie ryzyko). Wynik decyduje, czy korzystasz z pełnego planu (poziom 3), czy z krótszej checklisty (poziom 1–2).</p>
+      <p className="hint">Łącznie 65 punktów. 0–25 = mała zmiana (niskie ryzyko), 26–45 = średnia (średnie ryzyko), &gt;45 = duża (wysokie ryzyko). Wynik decyduje, czy wystarczy checklista (poziom 1), czy przechodzisz do diagnozy i planu działań (poziom 2–3).</p>
 
       <h3>Część I — Charakterystyka zmiany</h3>
       {SURVEY.partI.map(q => (
