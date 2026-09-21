@@ -97,15 +97,29 @@ const {useState, useMemo, useEffect, useRef} = React;
 
 /* ---------- Model referencyjny (zgodny z arkuszem PZZ Grupy Merito) ---------- */
 
+// "Kategoria" w interfejsie/eksporcie nazywa się teraz "rola wobec zmiany" (zespół uznał samo
+// słowo "kategoria" za mylące) — identyfikatory w kodzie (CATEGORIES, categoryId, adkarByCategory,
+// categoryBarrier) zostają bez zmian, żeby nie psuć zgodności zapisanych plików. "Klienci" była
+// piątą, opcjonalną rolą "do przetestowania" — zespół zdecydował, że zostaje na stałe, więc jest
+// tu razem z resztą (bez osobnego `OPTIONAL_CATEGORY`/przełącznika `usesOptionalCategory`).
+// `oldLabel` na wpisie klienci to poprzednie brzmienie etykiety — re-import starszego pliku, w
+// którym grupa ma przypisaną tę starą etykietę, ma ją nadal rozpoznać (patrz findCategoryByLabel).
 const CATEGORIES = [
-  {id:"kierunek", label:"Nadają kierunek i usuwają bariery", hint:"Sponsorzy, zarząd, dyrektorzy"},
-  {id:"przelozeni", label:"Bezpośredni przełożeni — usuwają bariery i/lub sami zmieniają nawyki", hint:"Kierownicy wspierający pracowników we wdrożeniu, informujący"},
-  {id:"nowezasady", label:"Pracują według nowych zasad", hint:"Główni użytkownicy zmiany"},
-  {id:"wdrozenie", label:"Przygotowują i wspierają wdrożenie", hint:"PM, PMO, HR, IT, trenerzy"},
+  {id:"kierunek", label:"Nadają kierunek i usuwają bariery",
+    hint:"Osoby podejmujące kluczowe decyzje, nadające priorytet przedsięwzięciu oraz usuwające przeszkody organizacyjne. Przykłady: sponsor projektu, zarząd, rektor, kanclerz, dyrektor jednostki."},
+  {id:"przelozeni", label:"Bezpośredni przełożeni — usuwają bariery i/lub sami zmieniają nawyki",
+    hint:"Kierownicy wspierający swoich pracowników w przejściu przez zmianę oraz często sami pracujący w nowy sposób. Przykłady: kierownicy działów, dziekani, menedżerowie zespołów, koordynatorzy."},
+  {id:"nowezasady", label:"Pracują według nowych zasad",
+    hint:"Główni odbiorcy zmiany, których codzienna praca ulegnie zmianie. Przykłady: pracownicy administracyjni, dydaktyczni, specjaliści, użytkownicy nowego systemu lub procesu."},
+  {id:"wdrozenie", label:"Przygotowują i wspierają wdrożenie",
+    hint:"Osoby zaangażowane w realizację przedsięwzięcia i wsparcie wdrożenia. Przykłady: PM, PMO, HR, pracownicy IT, właściciel produktu, dostawcy."},
+  {id:"klienci", label:"Klienci (zewnętrzni odbiorcy zmiany)",
+    oldLabel:"Klienci / studenci (zewnętrzni odbiorcy zmiany) — opcjonalna, do przetestowania",
+    hint:"Osoby spoza zespołu projektowego, które odczują skutki zmiany lub będą korzystać z jej rezultatów. Przykłady: studenci, kandydaci, partnerzy biznesowi."},
 ];
-const OPTIONAL_CATEGORY = {id:"klienci", label:"Klienci / studenci (zewnętrzni odbiorcy zmiany) — opcjonalna, do przetestowania", optional:true,
-  hint:"Osoby spoza projektu odczuwające skutki zmiany i wymagające zaplanowania dedykowanych działań, np. studenci"};
-const ALL_CATEGORIES = [...CATEGORIES, OPTIONAL_CATEGORY];
+function findCategoryByLabel(label){
+  return CATEGORIES.find(c => c.label === label || c.oldLabel === label);
+}
 const MAX_ACTIONS_PER_CATEGORY = 3;
 const MAX_WIP_ACTIONS = 5;
 
@@ -215,19 +229,8 @@ const PCT_QUESTIONS = {
   ],
 };
 
-// Szybka ocena (poziom 2) używa podzbioru 3 najbardziej różnicujących pytań na obszar z
-// powyższego zestawu — ten sam tekst, żeby nie dublować treści do utrzymania w dwóch miejscach.
-// Dobór celowo omija pytania, na które odpowiedź jest z góry przesądzona przez samą kartę projektu
-// (np. sponsor jest na karcie zawsze wskazany z imienia — pytanie o to nic by nie różnicowało).
-const QUICK_ASSESSMENT_QUESTION_INDEXES = {
-  definicjaSukcesu: [0, 2, 4],
-  przywodztwo: [1, 2, 4],
-  zarzadzanieProjektem: [0, 2, 3],
-  zarzadzanieZmiana: [0, 2, 4],
-};
-
-// Legenda skali pokazywana nad zestawem pytań (pełny PCT i szybka ocena) — bez niej "3" nie ma
-// wspólnego znaczenia między osobami oceniającymi ani między kolejnymi przeglądami w czasie.
+// Legenda skali pokazywana nad zestawem pytań PCT — bez niej "3" nie ma wspólnego znaczenia
+// między osobami oceniającymi ani między kolejnymi przeglądami w czasie.
 const LIKERT_SCALE_LEGEND = "Odpowiadaj w skali 1–5: 1 – nie/w ogóle, 2 – w niewielkim stopniu, 3 – częściowo, 4 – w dużym stopniu, 5 – tak, w pełni.";
 const LIKERT_SCALE_LABELS = ["1 – nie/w ogóle", "2 – w niewielkim stopniu", "3 – częściowo", "4 – w dużym stopniu", "5 – tak, w pełni"];
 
@@ -236,17 +239,10 @@ function emptyPctAnswers(){
   PCT_AREAS.forEach(a => { o[a.key] = PCT_QUESTIONS[a.key].map(()=>null); });
   return o;
 }
-function emptyQuickAnswers(){
-  const o = {};
-  PCT_AREAS.forEach(a => { o[a.key] = QUICK_ASSESSMENT_QUESTION_INDEXES[a.key].map(()=>null); });
-  return o;
-}
-// Wynik obszaru = suma odpowiedzi (1-5 każda), znormalizowana do skali 1-30 — tak samo dla pełnej
-// oceny (6 pytań x maks. 5 = 30, współczynnik 1) jak i szybkiej (3 pytania x maks. 5 = 15,
-// współczynnik 2). Dzięki temu obie oceny działają na wspólnej skali z tymi samymi progami
-// (pctTone), tą samą logiką najsłabszego obszaru (computeWeakestPctAreas) i tym samym wykresem
-// radarowym — bez przepisywania żadnego z nich. Wynik obszaru pojawia się dopiero, gdy WSZYSTKIE
-// jego pytania mają odpowiedź (tak jak dawniej pole liczbowe było puste albo wypełnione w całości).
+// Wynik obszaru = suma 6 odpowiedzi (1-5 każda) — mieści się w skali 1-30 (6 pytań x maks. 5),
+// więc pctTone/computeWeakestPctAreas/wykres działają na tej samej skali bez przeliczeń. Wynik
+// obszaru pojawia się dopiero, gdy WSZYSTKIE jego pytania mają odpowiedź (tak jak dawniej pole
+// liczbowe było puste albo wypełnione w całości).
 function pctAreaScore(answers, questionCount){
   if (!answers || answers.length !== questionCount) return null;
   if (answers.some(v => v == null || v === "")) return null;
@@ -256,11 +252,6 @@ function pctAreaScore(answers, questionCount){
 function pctScores(row){
   const scores = {};
   PCT_AREAS.forEach(a => { scores[a.key] = pctAreaScore(row && row.answers && row.answers[a.key], PCT_QUESTIONS[a.key].length); });
-  return scores;
-}
-function quickScores(answers){
-  const scores = {};
-  PCT_AREAS.forEach(a => { scores[a.key] = pctAreaScore(answers && answers[a.key], QUICK_ASSESSMENT_QUESTION_INDEXES[a.key].length); });
   return scores;
 }
 
@@ -386,7 +377,7 @@ function emptySurveyAnswers(){
 
 function emptyAdkarByCategory(){
   const o = {};
-  ALL_CATEGORIES.forEach(c => {
+  CATEGORIES.forEach(c => {
     o[c.id] = {awareness:null, desire:null, knowledge:null, ability:null, reinforcement:null, wniosek:""};
   });
   return o;
@@ -395,27 +386,19 @@ function emptyAdkarByCategory(){
 function newProjectState(){
   return {
     project: {
-      nazwa:"", sponsor:"", pm:"", cm:"", typProjektu:"", okresRealizacji:"",
-      terminPrzygotowania:"", czestotliwosc:"",
-      nick:"", filie:"", zwiazekZeStrategia:"", celProjektu:"", powodyProjektu:"", glownaKorzysc:"", budzetRazem:"",
-      wylaczenia:"", zrodloFinansowania:"", kartaType:"", korzyscTermin:"", korzyscMiernik:"",
+      nazwa:"", sponsor:"", pm:"", cm:"", typProjektu:"", filie:"", okresRealizacji:"",
+      terminPrzygotowania:"", czestotliwosc:"", kartaType:"",
     },
     surveyAnswers: emptySurveyAnswers(),
     pctHistory: [
-      {id:cryptoId(), data:"", punktKontrolny:"Diagnoza wejściowa", decyzja:"", kolejnyPrzeglad:"", answers: emptyPctAnswers()},
+      {id:cryptoId(), data:"", punktKontrolny:"Diagnoza wejściowa", dzialaniaUsprawniajace:[], kolejnyPrzeglad:"", answers: emptyPctAnswers()},
     ],
-    quickAssessment: emptyQuickAnswers(),
     groups: [],
     adkarByCategory: emptyAdkarByCategory(),
     actions: [],
     checklist12: {},
     milestones: [],
-    teamMembers: [],
-    risks: [],
-    deliverables: [],
-    budgetItems: [],
-    links: [],
-    maintenanceCosts: [],
+    benefits: [],
     savedAt: null,
   };
 }
@@ -438,12 +421,20 @@ function deserializeAnswers(str, length){
     return (v===undefined || v==="") ? null : Number(v);
   });
 }
-// Liczba realnie zapisanych pozycji w komórce (nie długość docelowej tablicy) — używana do
-// wykrycia pliku z poprzedniej wersji, gdzie dany zestaw pytań miał inną liczbę pytań.
-function countSerializedAnswers(str){
-  return (str==null || str==="") ? 0 : String(str).split(",").length;
+// Lista wolnego tekstu (np. działania usprawniające) w jednej komórce Excela, rozdzielona " | " —
+// mało prawdopodobny ciąg wewnątrz zdania, w przeciwieństwie do przecinka czy średnika.
+function serializeTextList(arr){
+  return (arr||[]).filter(Boolean).join(" | ");
 }
-
+function deserializeTextList(str){
+  return (str==null || str==="") ? [] : String(str).split(" | ").map(s=>s.trim()).filter(Boolean);
+}
+// Tekst kolumny "Największa bariera" w eksporcie Excel, spójny z tym, co pokazuje UI.
+function barrierExportText(b){
+  if (b.status === "ready") return "Brak istotnej bariery";
+  if (b.status === "barrier") return b.dims.map(x=>x.label).join(" i ") + (b.extraCount>0 ? " (+ "+b.extraCount+" innych)" : "");
+  return "";
+}
 // Domyślne/starsze dane (localStorage sprzed v1.7, częściowy import Excela) mogą nie mieć
 // tablicy `answers` wcale albo mieć złą liczbę pytań (np. po zmianie zestawu pytań w kodzie) —
 // dopełniamy brakujące odpowiedzi do null-i zamiast dać się wysypać dalszym obliczeniom.
@@ -456,14 +447,12 @@ function sanitizePctAnswers(raw){
   });
   return out;
 }
-function sanitizeQuickAnswers(raw){
-  const out = {};
-  PCT_AREAS.forEach(a => {
-    const n = QUICK_ASSESSMENT_QUESTION_INDEXES[a.key].length;
-    const src = raw && Array.isArray(raw[a.key]) ? raw[a.key] : [];
-    out[a.key] = Array.from({length:n}, (_,i) => src[i] ?? null);
-  });
-  return out;
+// v1.9 zamienia pojedyncze pole "działania usprawniające" (tekst) na listę — starsze pliki
+// (Excel z v1.8, localStorage) mają tam string, który ma się wczytać jako pierwszy element listy.
+function migrateDzialaniaUsprawniajace(row){
+  if (Array.isArray(row.dzialaniaUsprawniajace)) return row.dzialaniaUsprawniajace;
+  if (typeof row.decyzja === "string" && row.decyzja.trim()) return [row.decyzja.trim()];
+  return [];
 }
 
 function sanitizeProjectState(data){
@@ -472,54 +461,45 @@ function sanitizeProjectState(data){
   const project = (data.project && typeof data.project === "object") ? {...base.project, ...data.project} : base.project;
   const surveyAnswers = (data.surveyAnswers && typeof data.surveyAnswers === "object") ? {...base.surveyAnswers, ...data.surveyAnswers} : base.surveyAnswers;
   const pctHistoryRaw = Array.isArray(data.pctHistory) && data.pctHistory.length ? data.pctHistory : base.pctHistory;
-  const pctHistory = pctHistoryRaw.map(p => ({...p, answers: sanitizePctAnswers(p.answers)}));
-  const quickAssessment = sanitizeQuickAnswers(data.quickAssessment);
+  const pctHistory = pctHistoryRaw.map(p => ({
+    ...p, answers: sanitizePctAnswers(p.answers), dzialaniaUsprawniajace: migrateDzialaniaUsprawniajace(p),
+  }));
   const groups = Array.isArray(data.groups) ? data.groups : base.groups;
   const adkarByCategory = (data.adkarByCategory && typeof data.adkarByCategory === "object")
     ? {...base.adkarByCategory, ...data.adkarByCategory} : base.adkarByCategory;
   const actions = Array.isArray(data.actions) ? data.actions : base.actions;
   const checklist12 = (data.checklist12 && typeof data.checklist12 === "object") ? data.checklist12 : base.checklist12;
   const milestones = Array.isArray(data.milestones) ? data.milestones : base.milestones;
-  const teamMembers = Array.isArray(data.teamMembers) ? data.teamMembers : base.teamMembers;
-  const risks = Array.isArray(data.risks) ? data.risks : base.risks;
-  const deliverables = Array.isArray(data.deliverables) ? data.deliverables : base.deliverables;
-  const budgetItems = Array.isArray(data.budgetItems) ? data.budgetItems : base.budgetItems;
-  const links = Array.isArray(data.links) ? data.links : base.links;
-  const maintenanceCosts = Array.isArray(data.maintenanceCosts) ? data.maintenanceCosts : base.maintenanceCosts;
+  // v1.8 miało jedną (pojedynczą) główną korzyść biznesową wprost w polu projektu — migrujemy ją
+  // jako pierwszy (i jedyny) element nowej listy `benefits`, żeby stary plik nie tracił danych.
+  let benefits = Array.isArray(data.benefits) ? data.benefits : base.benefits;
+  if (!benefits.length && data.project && typeof data.project === "object" && data.project.glownaKorzysc){
+    benefits = [{
+      korzysc: data.project.glownaKorzysc, kategoria: "",
+      termin: data.project.korzyscTermin || "", miernik: data.project.korzyscMiernik || "",
+    }];
+  }
   return {
     ...base, ...data,
-    project, surveyAnswers, pctHistory, quickAssessment, groups, adkarByCategory, actions, checklist12, milestones, teamMembers, risks,
-    deliverables, budgetItems, links, maintenanceCosts,
+    project, surveyAnswers, pctHistory, groups, adkarByCategory, actions, checklist12, milestones, benefits,
   };
 }
 
 /* ---------- Import karty projektu (.docx) ---------- */
 
-// Etykieta i wartość mogą siedzieć w tej samej komórce/wierszu ("Lp | ETYKIETA | wartość")
-// albo etykieta zajmuje cały wiersz, a wartość jest w kolejnym (tak jest np. przy "CEL
-// PROJEKTU" czy "POWODY PODJĘCIA PROJEKTU", gdzie odpowiedź to osobny akapit/lista).
-// Szablony kart (uczelniana / grupowa-projektowa / programowa) różnią się nazewnictwem etykiet
-// ("MENADŻER PROJEKTU" vs "MENADŻER PROGRAMU", "ZWIĄZEK" vs "POWIĄZANIE ZE STRATEGIĄ" itd.) —
-// każdy matcher musi łapać wszystkie warianty, nie tylko ten z jednego przykładowego dokumentu.
+// Z karty zaciągamy TYLKO to, z czego narzędzie realnie korzysta (uzgodnione z zespołem PMO):
+// metryczkę, główne korzyści biznesowe, etapy/kamienie milowe i grupy objęte zmianą. Etykiety
+// szablonów kart (uczelniana / grupowa-projektowa / programowa) różnią się nazewnictwem
+// ("MENADŻER PROJEKTU" vs "MENADŻER PROGRAMU" itd.) — każdy matcher musi łapać oba warianty.
 const KARTA_FIELD_MATCHERS = [
   ["nazwa", /^NAZWA (PROJEKTU|PROGRAMU)/i],
-  ["nick", /^NICK\/?\s*SYMBOL/i],
-  ["sponsor", /^SPONSOR/i],
-  ["pm", /^MENADŻER (PROJEKTU|PROGRAMU)/i],
   ["typProjektu", /^TYP (PROJEKTU|PROGRAMU)/i],
   ["filie", /^(FILIE OBJĘTE PROJEKTEM|PODMIOTY OBJĘTE (PROGRAMEM|PROJEKTEM))/i],
-  ["zwiazekZeStrategia", /^(ZWIĄZEK|POWIĄZANIE) ZE STRATEGI/i],
   ["okresRealizacji", /^(OKRES|TERMIN) REALIZACJI/i],
-  ["powodyProjektu", /^(POWODY PODJĘCIA (PROJEKTU|PROGRAMU)|PROBLEMY\s*\/?\s*SZANSE DO ROZWIĄZANIA)/i],
-  ["celProjektu", /^CEL (PROJEKTU|PROGRAMU)/i],
-  ["budzetRazem", /^RAZEM/i],
-  ["wylaczenia", /^WYŁĄCZENIA/i],
-  ["zrodloFinansowania", /^ŹRÓDŁO FINANSOWANIA/i],
 ];
 
 // textContent samych <td> zlewa akapity/pozycje listy w jeden ciąg bez odstępu — dodajemy
-// spację między blokami (<p>, <li>), żeby np. wielopunktowe "Powody podjęcia projektu" dało
-// się w ogóle przeczytać.
+// spację między blokami (<p>, <li>), żeby wielopunktowa treść dała się w ogóle przeczytać.
 function cellText(node){
   const blocks = node.querySelectorAll("p, li");
   const text = blocks.length
@@ -528,9 +508,19 @@ function cellText(node){
   return text.replace(/\s+/g, " ").trim();
 }
 
+// Jak cellText, ale zwraca akapity/pozycje listy OSOBNO, nie zlane spacją — potrzebne tam, gdzie
+// każdy akapit to osobna osoba (sponsor/PM), a scalenie bez separatora sklejałoby dwie osoby
+// w jeden nieczytelny ciąg ("Jan Nowak – Prezes Anna Kowalska – Prorektor").
+function cellParagraphs(node){
+  const blocks = node.querySelectorAll("p, li");
+  const arr = blocks.length
+    ? Array.from(blocks).map(b => (b.textContent||"").trim()).filter(Boolean)
+    : [(node.textContent||"").trim()].filter(Boolean);
+  return arr.map(t => t.replace(/\s+/g, " ").trim());
+}
+
 // Autorzy szablonów zostawiają "puste" pola z placeholderem zamiast pustego akapitu — traktujemy
-// same kropki/myślniki i "n/d"/"brak" jak brak treści, żeby taki placeholder nie wylądował
-// w danych projektu (zgłoszony błąd: "Powody projektu" wchodziło jako samo "…").
+// same kropki/myślniki i "n/d"/"brak" jak brak treści.
 function isBlankish(text){
   const t = (text || "").trim();
   if (!t) return true;
@@ -547,37 +537,10 @@ function isDateLike(text){
   const t = (text||"").trim();
   return /^\d{1,2}[.\/]\d{1,2}[.\/]\d{2,4}$/.test(t) || /^(Q[1-4]\s*)?20\d{2}$/i.test(t);
 }
-// Asercje (nie uruchamiane automatycznie — pilnują założeń przy kolejnych zmianach):
-//   parseAmount("200 000")      === 200000
-//   parseAmount("1 200 000")    === 1200000
-//   parseAmount("120 000,50")   === 120000.5
-//   parseAmount("200.000")      === 200000   (kropka tysięcy, nie ułamek)
-//   parseAmount("1.200.000")    === 1200000
-//   parseAmount("120,5")        === 120.5
-function parseAmount(text){
-  if (!text) return null;
-  let cleaned = String(text).replace(/zł/gi, "").replace(/[^\d,.\s]/g, "").trim().replace(/\s+/g, "");
-  if (!cleaned) return null;
-  // Kropka po której następują dokładnie trzy cyfry (powtórzone grupowo, np. "1.200.000") to
-  // separator tysięcy, nie przecinek dziesiętny — ale TYLKO gdy w liczbie nie ma też przecinka
-  // (przecinek jednoznacznie wskazuje część ułamkową, więc kropka obok niego zawsze jest tysięcy).
-  // Bez tego rozróżnienia "200.000" parsowało się na 200 zamiast 200000 — błąd cichy, bo suma
-  // wychodziła 1000 razy za mała i nic tego nie sygnalizowało.
-  if (!cleaned.includes(",") && /^\d{1,3}(\.\d{3})+$/.test(cleaned)){
-    cleaned = cleaned.replace(/\./g, "");
-  }
-  const n = parseFloat(cleaned.replace(",", "."));
-  return isNaN(n) ? null : n;
-}
-function formatAmount(n){
-  return Math.round(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, " ");
-}
 
-// Trzy warianty karty (uczelniana / projektu grupowego / programu) różnią się nie tylko
-// nazewnictwem pól, ale i tym, KTÓRE pola w ogóle istnieją (np. karta programu nie ma
-// Nick/symbolu ani tabeli zespołu, karta uczelniana nie ma Źródła finansowania — ma za to MPK).
-// Rozpoznajemy typ po charakterystycznych, unikalnych dla danego wzoru etykietach, żeby UI
-// mogło pokazywać "brak w tym szablonie" zamiast sugerować, że import czegoś nie wyłapał.
+// Trzy warianty karty (uczelniana / projektu grupowego / programu) różnią się układem tabel
+// etapów/kamieni milowych (patrz extractMilestones) — rozpoznajemy typ po charakterystycznych,
+// unikalnych dla danego wzoru etykietach.
 function detectKartaType(tables){
   // Sprawdzamy POJEDYNCZE komórki, nie cały wiersz — w wierszu z numerem porządkowym Lp
   // ("1 | NAZWA PROJEKTU* | Wdrożenie...") tekst całego wiersza zaczyna się od "1", więc
@@ -601,19 +564,16 @@ function extractFields(tables){
         KARTA_FIELD_MATCHERS.forEach(([key, re]) => {
           if (fields[key] || !re.test(label)) return;
           // Wartość to komórka TUŻ OBOK etykiety (i+1), nie zawsze ostatnia w wierszu — niektóre
-          // szablony mieszczą dwie pary etykieta-wartość w jednym wierszu (np. "Nick/symbol | ... |
-          // Nazwa we Flexi | ..."), gdzie branie zawsze ostatniej komórki podstawiłoby cudzą wartość.
-          // Sięgamy do kolejnego wiersza lub komórki PRZED etykietą TYLKO gdy etykieta nie ma
-          // sąsiedniej komórki w ogóle (np. długi tekst opisowy pod nagłówkiem) — pusta-ale-istniejąca
-          // komórka obok etykiety oznacza po prostu niewypełnione pole, nie powód szukać dalej.
+          // szablony mieszczą dwie pary etykieta-wartość w jednym wierszu, gdzie branie zawsze
+          // ostatniej komórki podstawiłoby cudzą wartość.
           if (i < cells.length - 1){
             const value = cells[i + 1];
             if (value) fields[key] = value;
             return;
           }
           // Niektóre szablony scalają komórki tak, że WARTOŚĆ ląduje PRZED etykietą w tym samym
-          // wierszu (np. "Wszystkie spółki korzystają... | CEL PROJEKTU*..."). Komórka po lewej
-          // liczy się jako wartość tylko gdy nie jest numerem porządkowym (Lp) ani placeholderem.
+          // wierszu. Komórka po lewej liczy się jako wartość tylko gdy nie jest numerem
+          // porządkowym (Lp) ani placeholderem.
           if (i > 0){
             const left = cells[i - 1];
             if (left && !isLpLike(left) && !isBlankish(left)){
@@ -634,30 +594,48 @@ function extractFields(tables){
       }
     });
   });
-  // "Główna korzyść biznesowa" siedzi w osobnej mini-tabeli z nagłówkiem zawierającym m.in.
-  // "KORZYŚĆ BIZNESOWA", "KATEGORIA KORZYŚCI", "KIEDY WYSTĄPI?", "MIERNIK" — kolejność kolumn
-  // różni się między wzorami, a pusta komórka "kategoria" w wierszu danych potrafi przesunąć
-  // resztę wartości o jedną pozycję w lewo względem nagłówka. Zamiast liczyć na stałą pozycję
-  // kolumny, klasyfikujemy komórki wiersza danych po TREŚCI: pierwsza data-podobna to termin,
-  // pierwsza spośród pozostałych — korzyść, kolejna — miernik.
-  tables.forEach(table => {
-    const rows = Array.from(table.rows).map(row => Array.from(row.cells).map(cellText));
-    const headerIdx = rows.findIndex(r => r.some(c => /^KORZYŚĆ BIZNESOWA/i.test(c.replace(/\*/g, "").trim())));
-    if (headerIdx === -1 || fields.glownaKorzysc) return;
-    const dataRow = rows[headerIdx + 1];
-    if (!dataRow) return;
-    const nonBlank = dataRow.filter(c => !isBlankish(c));
-    if (!nonBlank.length) return;
-    const dateIdx = nonBlank.findIndex(isDateLike);
-    const kiedy = dateIdx !== -1 ? nonBlank[dateIdx] : "";
-    const rest = nonBlank.filter((c, i) => i !== dateIdx);
-    if (rest[0]){
-      fields.glownaKorzysc = rest[0];
-      if (kiedy) fields.korzyscTermin = kiedy;
-      if (rest[1]) fields.korzyscMiernik = rest[1];
-    }
-  });
   return fields;
+}
+
+// Sponsor i PM/menadżer bywają więcej niż jedną osobą — w karcie to widać na dwa sposoby: kilka
+// akapitów w JEDNEJ komórce (bez separatora w tekście) albo kolejne osoby w KOLEJNYCH WIERSZACH
+// tabeli (Lp/etykieta puste, tylko wartość). Działamy na surowych węzłach wiersza/komórki (nie na
+// już spłaszczonym cellText), żeby rozróżnić akapity, i doklejamy kolejne wiersze, dopóki
+// wyglądają na kontynuację (dokładnie jedna niepusta komórka, bez własnego Lp/etykiety).
+function extractPeopleField(tables, labelRe){
+  for (const table of tables){
+    const rows = Array.from(table.rows);
+    for (let r = 0; r < rows.length; r++){
+      const cells = Array.from(rows[r].cells);
+      for (let i = 0; i < cells.length; i++){
+        const label = cellText(cells[i]).replace(/\*/g, "").trim();
+        if (!label || !labelRe.test(label)) continue;
+        const people = [];
+        if (i < cells.length - 1){
+          people.push(...cellParagraphs(cells[i + 1]));
+        } else if (i > 0 && !isLpLike(cellText(cells[i - 1])) && !isBlankish(cellText(cells[i - 1]))){
+          people.push(...cellParagraphs(cells[i - 1]));
+        }
+        if (!people.length && rows[r + 1]){
+          const nextCells = Array.from(rows[r + 1].cells).map(cellText);
+          const candidates = nextCells.filter(c => !isBlankish(c));
+          const value = candidates.sort((a, b) => b.length - a.length)[0];
+          if (value) people.push(value);
+        }
+        let next = r + 1;
+        while (rows[next]){
+          const nextCells = Array.from(rows[next].cells).map(cellText);
+          const nonBlank = nextCells.filter(c => !isBlankish(c));
+          if (nonBlank.length !== 1 || isLpLike(nonBlank[0])) break;
+          people.push(nonBlank[0]);
+          next++;
+        }
+        const cleaned = people.map(p => p.trim()).filter(p => p && !isBlankish(p));
+        if (cleaned.length) return cleaned.join("; ");
+      }
+    }
+  }
+  return "";
 }
 
 // "GRUPY OBJĘTE ZMIANĄ" (szablony 2026) zastąpiło "INTERESARIUSZE PROJEKTU" (starszy wzór) —
@@ -681,202 +659,123 @@ function extractGroups(tables){
   return groups;
 }
 
-// Kamienie milowe występują w dwóch formach zależnie od szablonu:
-// A) dedykowana tabela "KLUCZOWE KAMIENIE MILOWE (PROJEKTU|PROGRAMU)" — KAŻDY numerowany
-//    wiersz to kamień milowy (Lp | Nazwa | Termin);
-// B) harmonogram/etapy ("ETAPY REALIZACJI", "RAMOWY PLAN REALIZACJI", "PLANOWANE DZIAŁANIA I
-//    KAMIENIE MILOWE"), gdzie tylko NIEKTÓRE wiersze są kamieniami, oznaczone prefiksem
-//    "Kamień milowy:" (starszy wzór) albo skrótem "KM:" (wzór 2026) na początku opisu.
-// Kolumny etapu/terminu mają w Wordzie rowspan na wiele wierszy, więc liczba komórek bywa różna —
-// termin to pierwsza NIEPUSTA komórka po tej z nazwą, nie zawsze ostatnia w wierszu.
+const MILESTONE_TYPE_LABELS = {etap: "Etap", kamien: "Kamień milowy", dzialanie: "Działanie"};
+
+// Kamienie milowe (i etapy) występują w dwóch formach zależnie od szablonu:
+// A) dedykowana tabela "KLUCZOWE KAMIENIE MILOWE (PROJEKTU|PROGRAMU)" (karta programu) — KAŻDY
+//    numerowany wiersz to kamień milowy (Lp | Nazwa | Termin), bez etapów.
+// B) harmonogram ("PLANOWANE DZIAŁANIA I KAMIENIE MILOWE" / "RAMOWY PLAN REALIZACJI", karta
+//    projektu/uczelniana) — 3 kolumny: etap | działanie lub kamień milowy (kamienie oznaczone
+//    prefiksem "KM:", starszy wzór "Kamień milowy:") | termin. Zaciągamy WSZYSTKIE wiersze, nie
+//    tylko te z prefiksem — nieprefiksowane to zwykłe działania, a same nazwy etapów też się
+//    przydają jako pozycje wyboru w Planie działań. Kolumna etapu bywa w Wordzie scalona
+//    (rowspan) na kilka wierszy jednego etapu — mammoth wtedy pomija komórkę na kolejnych
+//    wierszach, więc "dziedziczymy" ostatnio widziany etap zamiast zgadywać z pozycji.
 function extractMilestones(tables){
   const milestones = [];
   const dedicatedTable = tables.find(t => Array.from(t.rows).some(r => /NAZWA KAMIENIA/i.test(cellText(r))));
   if (dedicatedTable){
-    // Tytuł sekcji ("Lp | NAZWA SEKCJI") ma w pierwszej komórce numer karty (np. "17"), nie do
-    // odróżnienia od Lp kamienia milowego samą tylko cyfrą — dlatego zaczynamy DOPIERO za
-    // wierszem nagłówka kolumn ("L.p. | NAZWA KAMIENIA | TERMIN..."), a nie od początku tabeli.
     const rows = Array.from(dedicatedTable.rows).map(r => Array.from(r.cells).map(cellText));
     const headerIdx = rows.findIndex(r => r.some(c => /NAZWA KAMIENIA/i.test(c)));
     if (headerIdx !== -1){
       for (let i = headerIdx + 1; i < rows.length; i++){
         const cells = rows[i];
         if (cells.length < 2 || !/^\d+$/.test((cells[0]||"").trim())) continue;
-        if (cells[1]) milestones.push({nazwa: cells[1], termin: cells[2] || ""});
+        if (cells[1]) milestones.push({nazwa: cells[1], termin: cells[2] || "", typ: "kamien"});
       }
     }
   }
   const scheduleTable = tables.find(t => /ETAPY REALIZACJI|RAMOWY PLAN REALIZACJI|PLANOWANE DZIAŁANIA I KAMIENIE MILOWE/i.test(cellText(t.rows[0])));
   if (scheduleTable){
-    Array.from(scheduleTable.rows).forEach(row => {
-      const cells = Array.from(row.cells).map(cellText);
-      const idx = cells.findIndex(c => /^(Kamień milowy|KM)\s*[:\s]/i.test(c));
-      if (idx === -1) return;
-      const nazwa = cells[idx].replace(/^(Kamień milowy|KM)\s*:?\s*/i, "").trim();
-      const termin = cells.slice(idx + 1).find(c => c && c.trim()) || "";
-      if (nazwa) milestones.push({nazwa, termin});
-    });
+    const rows = Array.from(scheduleTable.rows).map(r => Array.from(r.cells).map(cellText));
+    const headerIdx = rows.findIndex(r => r.some(c => /NAZWA ETAPU/i.test(c)));
+    const seenEtapy = new Set();
+    let lastEtap = "";
+    for (let i = (headerIdx===-1 ? 1 : headerIdx+1); i < rows.length; i++){
+      const cells = rows[i];
+      if (cells.length < 2) continue;
+      const hasEtapCol = cells.length >= 3;
+      const etap = hasEtapCol ? cells[0] : lastEtap;
+      const dzialanieRaw = hasEtapCol ? cells[1] : cells[0];
+      const termin = (hasEtapCol ? cells[2] : cells[1]) || "";
+      if (!dzialanieRaw || isBlankish(dzialanieRaw)) continue;
+      if (hasEtapCol && etap && !isBlankish(etap)){
+        lastEtap = etap;
+        if (!seenEtapy.has(etap)){
+          seenEtapy.add(etap);
+          milestones.push({nazwa: etap, termin: "", typ: "etap"});
+        }
+      }
+      const isKm = /^(Kamień milowy|KM)\s*[:\s]/i.test(dzialanieRaw);
+      const nazwa = dzialanieRaw.replace(/^(Kamień milowy|KM)\s*:?\s*/i, "").trim();
+      if (nazwa) milestones.push({nazwa, termin, typ: isKm ? "kamien" : "dzialanie"});
+    }
   }
   return milestones;
 }
 
-// "OSOBY ZAANGAŻOWANE W PROJEKT..." (wzór 2026) zastąpiło "SKŁAD ZESPOŁU PROJEKTOWEGO..."
-// (starszy wzór) i ma o kolumnę mniej (bez "szacowane zaangażowanie") — akceptujemy 3 lub 4 komórki.
-function extractTeam(tables){
-  const team = [];
-  const table = tables.find(t => /SKŁAD ZESPOŁU PROJEKTOWEGO|OSOBY ZAANGAŻOWANE W (PROJEKT|PROGRAM)/i.test(cellText(t.rows[0])));
-  if (!table) return team;
-  Array.from(table.rows).forEach(row => {
-    const cells = Array.from(row.cells).map(cellText);
-    if (cells.length < 3) return;
-    const [imie, dzial, rola, zaangazowanie] = cells;
-    if (!imie || /^imi. i nazwisko$/i.test(imie)) return;
-    team.push({imie, dzial, rola, zaangazowanie: zaangazowanie || ""});
-  });
-  return team;
-}
-
-// "NAJWAŻNIEJSZE RYZYKA PROJEKTU" (uczelnie/projekty, wzór 2026) i "KLUCZOWE RYZYKA PROGRAMOWE"
-// (programy) obok starszego "KLUCZOWE RYZYKA PROJEKTU".
-function extractRisks(tables){
-  const risks = [];
-  const table = tables.find(t => /(NAJWAŻNIEJSZE|KLUCZOWE) RYZYKA/i.test(cellText(t.rows[0])));
-  if (!table) return risks;
-  Array.from(table.rows).forEach(row => {
-    const cells = Array.from(row.cells).map(cellText);
-    if (cells.length < 3) return;
-    const [, ryzyko, zarzadzanie] = cells;
-    if (!ryzyko || /^ryzyko\b/i.test(ryzyko.trim())) return;
-    risks.push({ryzyko, zarzadzanie});
-  });
-  return risks;
-}
-
-// "Sporadyczne zaangażowanie" ma dokładnie ten sam układ kolumn co "Skład zespołu"
-// (imię | dział | zadania/rola | termin/zaangażowanie), więc to też są ludzie do podpowiedzi
-// w polu "Odpowiedzialny" — dokładamy ich do tej samej listy zespołu.
-function extractSporadicTeam(tables){
-  const team = [];
-  const table = tables.find(t => /SPORADYCZNE ZAANGAŻOWANIE DO PROJEKTU/i.test(cellText(t.rows[0])));
-  if (!table) return team;
-  Array.from(table.rows).forEach(row => {
-    const cells = Array.from(row.cells).map(cellText);
-    if (cells.length < 3) return;
-    const [imie, dzial, rola, zaangazowanie] = cells;
-    if (!imie || /^imi. i nazwisko$/i.test(imie)) return;
-    team.push({imie, dzial, rola, zaangazowanie: zaangazowanie || ""});
-  });
-  return team;
-}
-
-// Produkty/komponenty: kolumny i ich KOLEJNOŚĆ różnią się między wzorami (stary ma "wartość
-// liczbową", nowy jej nie ma i zamienia kolejność terminu/odbiorcy; karta programu w ogóle nie ma
-// "produktów", tylko "komponenty programu" z inną nazwą kolumny). Zamiast zakładać stałą pozycję,
-// znajdujemy nagłówek (wiersz z komórką "L.p.") i mapujemy kolumny po treści etykiety.
-function extractDeliverables(tables){
-  const items = [];
-  const table = tables.find(t => Array.from(t.rows).some(r =>
-    /WYPRACOWANE\s+w\s+ramach\s+projektu\s+PRODUKTY|PLANOWANE\s+PRODUKT|PLANOWANE\s+KOMPONENTY/i.test(cellText(r))));
-  if (!table) return items;
-  const rows = Array.from(table.rows).map(row => Array.from(row.cells).map(cellText));
-  const headerIdx = rows.findIndex(r => r.some(c => /^L\.?\s?P\.?$/i.test(c.trim())));
-  if (headerIdx === -1) return items;
-  const header = rows[headerIdx];
-  const findCol = re => header.findIndex(c => re.test(c));
-  const produktCol = findCol(/PRODUKT|KOMPONENT/i);
-  const terminCol = findCol(/TERMIN|DATA DOSTARCZENIA|OKRES REALIZACJI/i);
-  const odbiorcaCol = findCol(/ODBIERAJ|ODBIORC|GRONO/i);
-  const wartoscCol = findCol(/WARTOŚĆ|LICZBOW|RODZAJ/i);
-  for (let r = headerIdx + 1; r < rows.length; r++){
-    const cells = rows[r];
-    if (!/^\d+$/.test((cells[0] || "").trim())) continue;
-    const produkt = produktCol >= 0 ? cells[produktCol] : cells[1];
-    if (!produkt) continue;
-    items.push({
-      produkt,
-      wartosc: wartoscCol >= 0 ? (cells[wartoscCol] || "") : "",
-      termin: terminCol >= 0 ? (cells[terminCol] || "") : "",
-      odbiorca: odbiorcaCol >= 0 ? (cells[odbiorcaCol] || "") : "",
-    });
-  }
-  return items;
-}
-
-// Pozycje budżetowe: liczba i kolejność kolumn różni się (czasem jest Lp, czasem nie; czasem
-// dochodzi "kwota dofinansowania zewnętrznego"). Zamiast zakładać pozycję, rozpoznajemy komórki
-// po TREŚCI w danym wierszu: kwota to komórka złożona głównie z cyfr, pozycja to najdłuższy
-// pozostały tekst — działa niezależnie od tego, która to kolumna po kolei.
-function extractBudgetItems(tables){
-  const items = [];
-  const table = tables.find(t => /BUDŻET (PROJEKTU|PROGRAMU)/i.test(cellText(t.rows[0])) && !/SZACUNKOWE/i.test(cellText(t.rows[0])));
-  if (!table) return items;
-  const isAmount = c => /\d/.test(c) && /^[\d\s.,?]+$/.test(c.trim());
-  const isExcludedLabel = c => /^(RAZEM|ŹRÓDŁO FINANSOWANIA|WAŻNE ZAŁOŻENIA|MPK|ZLECENIE|POZYCJA KOSZTOWA|KWOTA)/i.test(c.trim());
-  Array.from(table.rows).forEach(row => {
-    const cells = Array.from(row.cells).map(cellText).filter(Boolean);
-    // Etykiety typu "Źródło finansowania" / nagłówek kolumn mogą wylądować w KTÓREJKOLWIEK
-    // komórce (nie tylko tej wybranej jako "pozycja" wg długości tekstu) — trzeba sprawdzić cały
-    // wiersz, inaczej taki wiersz-etykieta (np. "ŹRÓDŁO FINANSOWANIA* | Budżet centralny IT")
-    // zostanie błędnie potraktowany jak pozycja kosztowa.
-    if (cells.some(isExcludedLabel)) return;
-    const nonLp = cells.filter(c => !/^\d{1,3}$/.test(c.trim()));
-    if (nonLp.length < 2) return;
-    const amountCell = nonLp.find(isAmount);
-    const textCells = nonLp.filter(c => c !== amountCell);
-    const pozycja = textCells.sort((a, b) => b.length - a.length)[0];
-    if (!pozycja) return;
-    items.push({pozycja, kwota: amountCell || ""});
-  });
-  return items;
-}
-
-function extractLinks(tables){
-  const links = [];
-  const table = tables.find(t => /POWIĄZANIA.*PUNKTY STYKU (PROJEKTU|PROGRAMU)/i.test(cellText(t.rows[0])));
-  if (!table) return links;
-  Array.from(table.rows).forEach(row => {
-    const cells = Array.from(row.cells).map(cellText);
-    if (cells.length < 2) return;
-    const [projekt, zaleznosc, wspolpraca] = cells;
-    if (!projekt) return;
-    if (/^\d+$/.test(projekt.trim())) return; // wiersz tytułowy sekcji ("Lp | TYTUŁ"), nie dana
-    if (/^projekt\/? ?portfel/i.test(projekt)) return;
-    links.push({projekt, zaleznosc: zaleznosc || "", wspolpraca: wspolpraca || ""});
-  });
-  return links;
-}
-
-function extractMaintenanceCosts(tables){
-  const items = [];
-  const table = tables.find(t => /SZACUNKOWE KOSZTY UTRZYMANIA/i.test(cellText(t.rows[0])));
-  if (!table) return items;
-  const rows = Array.from(table.rows).map(r => Array.from(r.cells).map(cellText));
-  const headerIdx = rows.findIndex(r => r.some(c => /^ROK/i.test(c)) && r.some(c => /KATEGORI/i.test(c)));
-  if (headerIdx === -1) return items;
-  const rokFirst = /^ROK/i.test(rows[headerIdx][0] || "");
-  if (rokFirst) {
-    // wariant: wiersz = rok, kolumny ROK | kategorie | kwota (np. karta uczelniana)
-    for (let i = headerIdx + 1; i < rows.length; i++) {
-      const cells = rows[i];
-      if (cells.length < 3) break;
-      const [rok, kategorie, kwota] = cells;
-      if (!rok || /^sum/i.test(rok)) break;
-      items.push({rok, kategorie, kwota: kwota || ""});
+// "Główna korzyść biznesowa" (może być więcej niż jedna) siedzi w mini-tabeli z nagłówkiem
+// zawierającym m.in. "KORZYŚĆ BIZNESOWA", "KATEGORIA KORZYŚCI", "KIEDY WYSTĄPI?", "MIERNIK" —
+// kolejność kolumn różni się między wzorami. Gdy wiersz danych ma TYLE SAMO komórek co nagłówek,
+// mapujemy po pozycji kolumny z nagłówka (odporne na dowolną kolejność kolumn), ALE tylko gdy
+// komórka pod "kiedy" faktycznie wygląda na datę/jest pusta — na wszystkich 3 przykładowych
+// kartach pusta "kategoria" NIE znika z wiersza, tylko autor karty wpisuje w nią treść korzyści,
+// przez co cała reszta wiersza przesuwa się o kolumnę mimo tej samej liczby komórek co nagłówek.
+// Heurystykę z v1.6 (klasyfikacja po treści: pierwsza data-podobna to termin, pierwsza z
+// pozostałych to korzyść, kolejna to miernik) używamy jako fallback zarówno dla wiersza
+// KRÓTSZEGO od nagłówka, jak i dla takiego przesunięcia. Pojedyncza scalona komórka na całą
+// szerokość tabeli (np. "KLUCZOWE ZAŁOŻENIA...") to nagłówek kolejnej podsekcji, nie korzyść —
+// kończy listę.
+function extractBenefits(tables){
+  const benefits = [];
+  tables.forEach(table => {
+    const rows = Array.from(table.rows).map(row => Array.from(row.cells).map(cellText));
+    const headerIdx = rows.findIndex(r => r.some(c => /^KORZYŚĆ BIZNESOWA/i.test(c.replace(/\*/g, "").trim())));
+    if (headerIdx === -1) return;
+    const header = rows[headerIdx].map(c => c.replace(/\*/g, "").trim());
+    const findCol = re => header.findIndex(c => re.test(c));
+    const korzyscCol = findCol(/^KORZYŚĆ BIZNESOWA/i);
+    const kategoriaCol = findCol(/^KATEGORIA/i);
+    const kiedyCol = findCol(/^KIEDY/i);
+    const miernikCol = findCol(/^MIERNIK/i);
+    for (let r = headerIdx + 1; r < rows.length; r++){
+      const row = rows[r];
+      const nonBlank = row.filter(c => !isBlankish(c));
+      if (!nonBlank.length) break; // pusty wiersz = koniec tabeli korzyści
+      // Jedna scalona komórka na całą szerokość tabeli to nagłówek kolejnej podsekcji ("KLUCZOWE
+      // ZAŁOŻENIA...", "PRZYJĘTE ZAŁOŻENIA..."), nie wiersz z korzyścią — kończymy tabelę korzyści.
+      if (row.length <= 1) break;
+      let korzysc, kategoria, kiedy, miernik;
+      // Liczba komórek zgadza się z nagłówkiem, ale to NIE gwarantuje poprawnego wyrównania: gdy
+      // "kategoria" zostaje pusta, autor karty czasem i tak wpisuje treść korzyści w tę (scaloną)
+      // komórkę zamiast zostawić ją pustą, przez co cała reszta wiersza przesuwa się o kolumnę
+      // (potwierdzone na wszystkich 3 przykładowych kartach). Wyrównanie po pozycji ufamy tylko
+      // gdy komórka "kiedy" faktycznie wygląda na datę (albo jest pusta) — inaczej to sygnał
+      // przesunięcia i wracamy do heurystyki po treści.
+      const kiedyLooksRight = kiedyCol < 0 || isBlankish(row[kiedyCol]) || isDateLike(row[kiedyCol]);
+      if (row.length === header.length && kiedyLooksRight){
+        korzysc = korzyscCol>=0 ? row[korzyscCol] : "";
+        kategoria = kategoriaCol>=0 ? row[kategoriaCol] : "";
+        kiedy = kiedyCol>=0 ? row[kiedyCol] : "";
+        miernik = miernikCol>=0 ? row[miernikCol] : "";
+      } else {
+        const dateIdx = nonBlank.findIndex(isDateLike);
+        kiedy = dateIdx !== -1 ? nonBlank[dateIdx] : "";
+        const rest = nonBlank.filter((c, i) => i !== dateIdx);
+        korzysc = rest[0] || "";
+        miernik = rest[1] || "";
+        kategoria = "";
+      }
+      if (isBlankish(korzysc)) continue;
+      benefits.push({
+        korzysc,
+        kategoria: isBlankish(kategoria) ? "" : kategoria,
+        termin: isBlankish(kiedy) ? "" : kiedy,
+        miernik: isBlankish(miernik) ? "" : miernik,
+      });
     }
-  } else {
-    // wariant: wiersz = kategoria kosztu, kolumny = lata; etykiety lat w kolejnym wierszu
-    const years = (rows[headerIdx + 1] || []).filter(c => c && c.trim());
-    for (let i = headerIdx + 2; i < rows.length; i++) {
-      const cells = rows[i];
-      if (cells.length < 2 || !/^\d+$/.test((cells[0] || "").trim())) break;
-      const rest = cells.slice(1);
-      const kategorie = rest.find(c => c && c.trim() && !/^[\d\s.,]+$/.test(c.trim())) || "";
-      const amounts = rest.filter(c => c && c.trim() && /^[\d\s.,]+$/.test(c.trim()));
-      if (!kategorie && !amounts.length) continue;
-      items.push({rok: years.join(" / "), kategorie, kwota: amounts.join(", ")});
-    }
-  }
-  return items;
+  });
+  return benefits;
 }
 
 // Karta projektu Grupy Merito ma stałą, numerowaną strukturę tabel. Parser dopasowuje pola po
@@ -886,18 +785,15 @@ function extractMaintenanceCosts(tables){
 function parseKartaHtml(html){
   const doc = new DOMParser().parseFromString(html, "text/html");
   const tables = Array.from(doc.querySelectorAll("table"));
-  const team = [...extractTeam(tables), ...extractSporadicTeam(tables)];
+  const fields = extractFields(tables);
+  fields.sponsor = extractPeopleField(tables, /^SPONSOR/i);
+  fields.pm = extractPeopleField(tables, /^MENADŻER (PROJEKTU|PROGRAMU)/i);
   return {
     kartaType: detectKartaType(tables),
-    fields: extractFields(tables),
+    fields,
     groups: extractGroups(tables),
     milestones: extractMilestones(tables),
-    team,
-    risks: extractRisks(tables),
-    deliverables: extractDeliverables(tables),
-    budgetItems: extractBudgetItems(tables),
-    links: extractLinks(tables),
-    maintenanceCosts: extractMaintenanceCosts(tables),
+    benefits: extractBenefits(tables),
   };
 }
 
@@ -980,6 +876,7 @@ function App(){
   const [showVersions, setShowVersions] = useState(false);
   const [toast, setToast] = useState(null);
   const [kartaImport, setKartaImport] = useState(null);
+  const [kartaPreImportSnapshot, setKartaPreImportSnapshot] = useState(null);
   const excelInputRef = useRef(null);
   const kartaInputRef = useRef(null);
   const versionsDialogRef = useRef(null);
@@ -993,8 +890,8 @@ function App(){
 
   useEffect(()=>{
     if(!toast) return;
-    // Dłuższe komunikaty (np. ostrzeżenie o pominiętej szybkiej ocenie ze starszej wersji pliku)
-    // dostają więcej czasu na ekranie niż krótkie potwierdzenia typu "Zapisano".
+    // Dłuższe komunikaty (np. podsumowanie zastosowanego importu karty) dostają więcej czasu na
+    // ekranie niż krótkie potwierdzenia typu "Zapisano".
     const t = setTimeout(()=>setToast(null), toast.length > 60 ? 6000 : 2600);
     return ()=>clearTimeout(t);
   }, [toast]);
@@ -1021,67 +918,49 @@ function App(){
   const pctAvg = pctNums.length ? (pctNums.reduce((a,b)=>a+b,0)/pctNums.length) : null;
   const pctWeakestAreas = computeWeakestPctAreas(pctLatestScores);
 
-  // Szybka ocena gotowości (poziom 2) — ta sama logika, znormalizowana do tej samej skali 1-30
-  // (patrz pctAreaScore), więc computeWeakestPctAreas/pctTone/wykres radarowy działają identycznie.
-  const quickScoresObj = useMemo(()=>quickScores(state.quickAssessment), [state.quickAssessment]);
-  const quickNums = PCT_AREAS.map(a => quickScoresObj[a.key]).filter(v => v != null);
-  const quickAvg = quickNums.length ? (quickNums.reduce((a,b)=>a+b,0)/quickNums.length) : null;
-  const quickWeakestAreas = computeWeakestPctAreas(quickScoresObj);
-
-  // Pulpit/eksport pokazują JEDNĄ kartę "gotowości przedsięwzięcia", której źródło zależy od
-  // poziomu zmiany — pełny PCT dla poziomu 3, szybka ocena dla poziomu 2 — bez nazywania szybkiej
-  // oceny "PCT" w interfejsie (zespół prosił o mniej żargonu).
-  const readinessAvg = level.poziom === 3 ? pctAvg : (level.poziom === 2 ? quickAvg : null);
-  const readinessWeakestAreas = level.poziom === 3 ? pctWeakestAreas : (level.poziom === 2 ? quickWeakestAreas : []);
-  const readinessLabel = level.poziom === 3 ? "PCT" : "Szybka ocena";
-
-  // Budżet razem: karty rzadko mają wypełniony wiersz "RAZEM" mimo poprawnie zaimportowanych
-  // pozycji budżetowych — zamiast prosić o ręczne przepisanie sumy, liczymy ją sami z pozycji.
-  // Wartość z karty (jeśli podana) i tak nadpisuje to pole przy imporcie, więc tu liczy się
-  // tylko jako wartość domyślna/obliczona.
-  const budzetRazemComputed = useMemo(()=>{
-    const nums = state.budgetItems.map(b => parseAmount(b.kwota)).filter(n => n != null);
-    return nums.length ? formatAmount(nums.reduce((a,b)=>a+b,0)) : null;
-  }, [state.budgetItems]);
-
   const adkarRollup = useMemo(()=>{
-    const activeCats = CATEGORIES.concat(state.usesOptionalCategory ? [OPTIONAL_CATEGORY] : []);
     return ADKAR_DIMS.map(dim => {
-      const vals = activeCats
+      const vals = CATEGORIES
         .map(c => state.adkarByCategory[c.id]?.[dim.id])
         .filter(v => v !== null && v !== undefined && v !== "")
         .map(Number);
       const avg = vals.length ? vals.reduce((a,b)=>a+b,0)/vals.length : null;
       const min = vals.length ? Math.min(...vals) : null;
-      const atRisk = activeCats.filter(c => {
+      const atRisk = CATEGORIES.filter(c => {
         const v = state.adkarByCategory[c.id]?.[dim.id];
         return v !== null && v !== undefined && v !== "" && Number(v) <= 2;
       }).map(c => c.label);
       return {...dim, avg, min, atRiskCount: atRisk.length, atRisk, suggestion: ADKAR_SUGGESTIONS[dim.id]};
     });
-  }, [state.adkarByCategory, state.usesOptionalCategory]);
+  }, [state.adkarByCategory]);
 
-  // Zwraca WSZYSTKIE wymiary ADKAR związane najniższą oceną w danej kategorii, nie tylko pierwszy
-  // znaleziony — przy remisie (np. Knowledge i Reinforcement oba na 2) oba są barierą do zaadresowania,
-  // nie tylko jeden (zgłoszony błąd: przy dwóch tak samo ocenionych obszarach tool pokazywał jeden).
+  // Bariera = wymiar ADKAR z najniższą oceną, ale TYLKO gdy ta ocena jest ≤3 (spójnie z legendą:
+  // 4-5 to dobra gotowość) — inaczej nawet same piątki dawałyby "barierę". Przy remisie pokazujemy
+  // maks. 2 wymiary; gdy remis dotyczy 3 lub więcej, pokazujemy tylko pierwszy w kolejności ADKAR
+  // (pierwszy niezaliczony wymiar blokuje kolejne) + liczbę pozostałych do osobnego komunikatu.
+  // status: "empty" (nic jeszcze nie ocenione — nie pokazujemy nic), "ready" (żaden wymiar ≤3 —
+  // "brak istotnej bariery"), "barrier" (dims: 1-2 wymiary, extraCount: ile jeszcze przy remisie ≥3).
   function categoryBarrier(catId){
     const d = state.adkarByCategory[catId];
-    if (!d) return [];
+    if (!d) return {status:"empty", dims:[], extraCount:0};
     let worstVal = Infinity;
     ADKAR_DIMS.forEach(dim => {
       const v = d[dim.id];
       if (v !== null && v !== undefined && v !== "" && Number(v) < worstVal) worstVal = Number(v);
     });
-    if (worstVal === Infinity) return [];
-    return ADKAR_DIMS.filter(dim => {
+    if (worstVal === Infinity) return {status:"empty", dims:[], extraCount:0};
+    if (worstVal > 3) return {status:"ready", dims:[], extraCount:0};
+    const tied = ADKAR_DIMS.filter(dim => {
       const v = d[dim.id];
       return v !== null && v !== undefined && v !== "" && Number(v) === worstVal;
     });
+    if (tied.length <= 2) return {status:"barrier", dims: tied, extraCount:0};
+    return {status:"barrier", dims: [tied[0]], extraCount: tied.length - 1};
   }
 
   const actionsByCategory = useMemo(()=>{
     const m = {};
-    ALL_CATEGORIES.forEach(c => m[c.id] = state.actions.filter(a => a.categoryId === c.id));
+    CATEGORIES.forEach(c => m[c.id] = state.actions.filter(a => a.categoryId === c.id));
     return m;
   }, [state.actions]);
 
@@ -1119,135 +998,54 @@ function App(){
     setVersions(next);
     saveVersions(next);
   }
-  const EMPTY_KARTA_IMPORT = {kartaType:null, fields:{}, groups:[], milestones:[], team:[], risks:[], deliverables:[], budgetItems:[], links:[], maintenanceCosts:[]};
-
+  // Zamiast pokazywać podgląd i czekać na klik "Zastosuj wszystko naraz" (zespół po wczytaniu
+  // karty nie zauważał, że trzeba to kliknąć) — zaciągnięte dane stosujemy OD RAZU po udanym
+  // rozpoznaniu pliku. Metryczkę widać w edytowalnych polach poniżej (można ją tam poprawić),
+  // grupy/kamienie dokładamy do istniejących list (bez duplikatów po nazwie), korzyści nadpisują
+  // poprzednią listę. `kartaPreImportSnapshot` trzyma stan SPRZED importu, żeby jednym klikiem
+  // dało się cofnąć cały import, gdyby karta była zła.
   function handleKartaFile(file){
     const reader = new FileReader();
     reader.onload = () => {
       mammoth.convertToHtml({arrayBuffer: reader.result})
         .then(result => {
           const parsed = parseKartaHtml(result.value);
-          const found = Object.keys(parsed.fields).length + parsed.groups.length + parsed.milestones.length
-            + parsed.team.length + parsed.risks.length + parsed.deliverables.length + parsed.budgetItems.length
-            + parsed.links.length + parsed.maintenanceCosts.length;
-          setKartaImport(found === 0
-            ? {fileName: file.name, ...EMPTY_KARTA_IMPORT, failed:true}
-            : {fileName: file.name, ...parsed, failed:false});
+          const found = Object.keys(parsed.fields).length + parsed.groups.length + parsed.milestones.length + parsed.benefits.length;
+          if (found === 0){ setKartaImport({fileName: file.name, failed:true}); return; }
+          const snapshot = state;
+          const existingGroupNames = new Set(state.groups.map(g => (g.nazwa||"").trim().toLowerCase()));
+          const newGroups = parsed.groups
+            .filter(g => g.nazwa && !existingGroupNames.has(g.nazwa.trim().toLowerCase()))
+            .map(g => ({id:cryptoId(), nazwa:g.nazwa, wplyw:g.wplyw, categoryId: ""}));
+          const existingMilestoneNames = new Set(state.milestones.map(m => (m.nazwa||"").trim().toLowerCase()));
+          const newMilestones = parsed.milestones
+            .filter(m => m.nazwa && !existingMilestoneNames.has(m.nazwa.trim().toLowerCase()))
+            .map(m => ({id:cryptoId(), ...m}));
+          setState(sanitizeProjectState({
+            ...state,
+            project: {...state.project, ...parsed.fields, ...(parsed.kartaType ? {kartaType: parsed.kartaType} : {})},
+            groups: [...state.groups, ...newGroups],
+            milestones: [...state.milestones, ...newMilestones],
+            benefits: parsed.benefits.length ? parsed.benefits : state.benefits,
+          }));
+          setKartaPreImportSnapshot(snapshot);
+          setKartaImport({
+            fileName: file.name, failed:false,
+            fieldsCount: Object.keys(parsed.fields).length, groupsAdded: newGroups.length,
+            milestonesAdded: newMilestones.length, benefitsCount: parsed.benefits.length,
+          });
+          setToast("Zastosowano dane z karty: " + file.name);
         })
-        .catch(() => setKartaImport({fileName: file.name, ...EMPTY_KARTA_IMPORT, failed:true}));
+        .catch(() => setKartaImport({fileName: file.name, failed:true}));
     };
     reader.readAsArrayBuffer(file);
   }
-  function applyKartaFields(){
-    if (!kartaImport) return;
-    const kartaType = kartaImport.kartaType || undefined;
-    setState(s => ({...s, project: {...s.project, ...kartaImport.fields, ...(kartaType ? {kartaType} : {})}}));
-    // Po zastosowaniu te same wartości widać już w formularzu poniżej — zostawienie ich też w
-    // tabeli podglądu to czysta duplikacja ("to jest do góry, to już jest do góry, to po co tu
-    // drugi raz?"), więc czyścimy tylko `fields` z podglądu (reszta sekcji karty — grupy, kamienie
-    // milowe itd. — zostaje widoczna, dopóki nie zostanie zastosowana osobno).
-    setKartaImport(ki => ki ? {...ki, fields: {}} : ki);
-    setToast("Zastosowano dane z karty projektu.");
-  }
-  function applyKartaGroups(){
-    if (!kartaImport) return;
-    setState(s => {
-      const existingNames = new Set(s.groups.map(g => (g.nazwa||"").trim().toLowerCase()));
-      const toAdd = kartaImport.groups
-        .filter(g => g.nazwa && !existingNames.has(g.nazwa.trim().toLowerCase()))
-        .map(g => ({id:cryptoId(), nazwa:g.nazwa, wplyw:g.wplyw, categoryId: ""}));
-      return {...s, groups: [...s.groups, ...toAdd]};
-    });
-    setToast("Dodano grupy interesariuszy z karty projektu — przypisz im właściwe kategorie w zakładce Diagnoza.");
-  }
-  function applyKartaMilestones(){
-    if (!kartaImport) return;
-    setState(s => {
-      const existing = new Set(s.milestones.map(m => (m.nazwa||"").trim().toLowerCase()));
-      const toAdd = kartaImport.milestones
-        .filter(m => m.nazwa && !existing.has(m.nazwa.trim().toLowerCase()))
-        .map(m => ({id:cryptoId(), ...m}));
-      return {...s, milestones: [...s.milestones, ...toAdd]};
-    });
-    setToast("Dodano kamienie milowe z karty projektu — będą podpowiadane w Planie działań.");
-  }
-  function applyKartaTeam(){
-    if (!kartaImport) return;
-    setState(s => {
-      const existing = new Set(s.teamMembers.map(m => (m.imie||"").trim().toLowerCase()));
-      const toAdd = kartaImport.team
-        .filter(m => m.imie && !existing.has(m.imie.trim().toLowerCase()))
-        .map(m => ({id:cryptoId(), ...m}));
-      return {...s, teamMembers: [...s.teamMembers, ...toAdd]};
-    });
-    setToast("Dodano skład zespołu z karty projektu — będzie podpowiadany jako „Odpowiedzialny”.");
-  }
-  function applyKartaRisks(){
-    if (!kartaImport) return;
-    setState(s => {
-      const existing = new Set(s.risks.map(r => (r.ryzyko||"").trim().toLowerCase()));
-      const toAdd = kartaImport.risks
-        .filter(r => r.ryzyko && !existing.has(r.ryzyko.trim().toLowerCase()))
-        .map(r => ({id:cryptoId(), ...r}));
-      return {...s, risks: [...s.risks, ...toAdd]};
-    });
-    setToast("Dodano ryzyka projektu z karty (referencyjnie, do wglądu w Danych projektu).");
-  }
-  function applyKartaDeliverables(){
-    if (!kartaImport) return;
-    setState(s => {
-      const existing = new Set(s.deliverables.map(d => (d.produkt||"").trim().toLowerCase()));
-      const toAdd = kartaImport.deliverables
-        .filter(d => d.produkt && !existing.has(d.produkt.trim().toLowerCase()))
-        .map(d => ({id:cryptoId(), ...d}));
-      return {...s, deliverables: [...s.deliverables, ...toAdd]};
-    });
-    setToast("Dodano wypracowane produkty z karty (referencyjnie).");
-  }
-  function applyKartaBudgetItems(){
-    if (!kartaImport) return;
-    setState(s => {
-      const existing = new Set(s.budgetItems.map(b => (b.pozycja||"").trim().toLowerCase()));
-      const toAdd = kartaImport.budgetItems
-        .filter(b => b.pozycja && !existing.has(b.pozycja.trim().toLowerCase()))
-        .map(b => ({id:cryptoId(), ...b}));
-      return {...s, budgetItems: [...s.budgetItems, ...toAdd]};
-    });
-    setToast("Dodano pozycje budżetowe z karty (referencyjnie).");
-  }
-  function applyKartaLinks(){
-    if (!kartaImport) return;
-    setState(s => {
-      const existing = new Set(s.links.map(l => (l.projekt||"").trim().toLowerCase()));
-      const toAdd = kartaImport.links
-        .filter(l => l.projekt && !existing.has(l.projekt.trim().toLowerCase()))
-        .map(l => ({id:cryptoId(), ...l}));
-      return {...s, links: [...s.links, ...toAdd]};
-    });
-    setToast("Dodano powiązania z innymi projektami (referencyjnie).");
-  }
-  function applyKartaMaintenanceCosts(){
-    if (!kartaImport) return;
-    setState(s => {
-      const existing = new Set(s.maintenanceCosts.map(m => (m.rok||"").trim().toLowerCase()));
-      const toAdd = kartaImport.maintenanceCosts
-        .filter(m => m.rok && !existing.has(m.rok.trim().toLowerCase()))
-        .map(m => ({id:cryptoId(), ...m}));
-      return {...s, maintenanceCosts: [...s.maintenanceCosts, ...toAdd]};
-    });
-    setToast("Dodano koszty utrzymania po projekcie (referencyjnie).");
-  }
-  function applyKartaAll(){
-    applyKartaFields();
-    applyKartaGroups();
-    applyKartaMilestones();
-    applyKartaTeam();
-    applyKartaRisks();
-    applyKartaDeliverables();
-    applyKartaBudgetItems();
-    applyKartaLinks();
-    applyKartaMaintenanceCosts();
-    setToast("Zastosowano wszystko, co udało się wykryć w karcie projektu.");
+  function undoKartaImport(){
+    if (!kartaPreImportSnapshot) return;
+    setState(kartaPreImportSnapshot);
+    setKartaPreImportSnapshot(null);
+    setKartaImport(null);
+    setToast("Cofnięto import karty.");
   }
   function dismissKartaImport(){ setKartaImport(null); }
 
@@ -1258,7 +1056,6 @@ function App(){
   async function exportExcel(){
     const wb = new ExcelJS.Workbook();
     wb.creator = "Plan Zarządzania Zmianą — Grupa Merito";
-    const activeCategories = CATEGORIES.concat(state.usesOptionalCategory ? [OPTIONAL_CATEGORY] : []);
 
     const wsDane = wb.addWorksheet("Dane projektu");
     wsDane.columns = [{width:45},{width:40},{width:30},{width:25}];
@@ -1269,60 +1066,22 @@ function App(){
     xlsLabelRow(wsDane, "PM", state.project.pm);
     xlsLabelRow(wsDane, "CM (jeśli powołany)", state.project.cm);
     xlsLabelRow(wsDane, "Typ projektu", state.project.typProjektu);
+    xlsLabelRow(wsDane, "Filie objęte projektem", state.project.filie);
     xlsLabelRow(wsDane, "Okres realizacji projektu", state.project.okresRealizacji);
     xlsLabelRow(wsDane, "Termin przygotowania PZZ", state.project.terminPrzygotowania);
     xlsLabelRow(wsDane, "Częstotliwość przeglądu", state.project.czestotliwosc);
     wsDane.addRow([]);
-    xlsLabelRow(wsDane, "Nick/symbol", state.project.nick);
-    xlsLabelRow(wsDane, "Filie objęte projektem", state.project.filie);
-    // Karty w praktyce nie wypełniają wiersza "RAZEM" (patrz budzetRazemComputed) — eksport ma
-    // zapisywać wartość EFEKTYWNĄ (tę, którą użytkownik widzi na ekranie), nie surowe, puste pole
-    // z karty, bo inaczej załącznik do karty pokazuje pustkę tam, gdzie aplikacja liczy sumę.
-    const budzetRazemEfektywny = (state.project.budzetRazem||"").trim()
-      || (budzetRazemComputed ? budzetRazemComputed + " (wyliczone automatycznie z pozycji budżetowych)" : "");
-    xlsLabelRow(wsDane, "Budżet razem (brutto)", budzetRazemEfektywny);
-    xlsLabelRow(wsDane, "Źródło finansowania", state.project.zrodloFinansowania);
-    xlsLabelRow(wsDane, "Związek ze strategią", state.project.zwiazekZeStrategia);
-    xlsLabelRow(wsDane, "Powody podjęcia projektu", state.project.powodyProjektu);
-    xlsLabelRow(wsDane, "Cel projektu", state.project.celProjektu);
-    xlsLabelRow(wsDane, "Główna korzyść biznesowa", state.project.glownaKorzysc);
-    xlsLabelRow(wsDane, "Termin wystąpienia korzyści", state.project.korzyscTermin);
-    xlsLabelRow(wsDane, "Miernik korzyści", state.project.korzyscMiernik);
-    xlsLabelRow(wsDane, "Wyłączenia", state.project.wylaczenia);
-    xlsLabelRow(wsDane, "Typ karty (wykryty przy imporcie)", state.project.kartaType);
-    wsDane.addRow([]);
     xlsLabelRow(wsDane, "Liczba punktów w ankiecie skali zmiany (patrz też arkusz „Ankieta”)", surveyTotal, true);
     xlsLabelRow(wsDane, "Poziom zmiany", level.complete ? (level.poziom + " — " + level.label) : "Ankieta nieukończona", true);
     xlsLabelRow(wsDane, "Ocena ryzyka", level.risk);
-    xlsLabelRow(wsDane, "Kategoria „Klienci/studenci” włączona", state.usesOptionalCategory ? "TAK" : "NIE");
     wsDane.addRow([]);
-    xlsSectionRow(wsDane, ["KAMIENIE MILOWE Z KARTY PROJEKTU"]);
-    xlsHeaderRow(wsDane, ["Kamień milowy", "Termin"]);
-    state.milestones.forEach(m => xlsDataRow(wsDane, [m.nazwa, m.termin]));
+    xlsSectionRow(wsDane, ["GŁÓWNE KORZYŚCI BIZNESOWE Z KARTY PROJEKTU"]);
+    xlsHeaderRow(wsDane, ["Korzyść", "Kategoria", "Kiedy wystąpi", "Miernik"]);
+    state.benefits.forEach(b => xlsDataRow(wsDane, [b.korzysc, b.kategoria, b.termin, b.miernik]));
     wsDane.addRow([]);
-    xlsSectionRow(wsDane, ["SKŁAD ZESPOŁU Z KARTY PROJEKTU"]);
-    xlsHeaderRow(wsDane, ["Imię i nazwisko", "Dział", "Rola", "Zaangażowanie"]);
-    state.teamMembers.forEach(t => xlsDataRow(wsDane, [t.imie, t.dzial, t.rola, t.zaangazowanie]));
-    wsDane.addRow([]);
-    xlsSectionRow(wsDane, ["KLUCZOWE RYZYKA Z KARTY PROJEKTU"]);
-    xlsHeaderRow(wsDane, ["Ryzyko", "Sposób zarządzania"]);
-    state.risks.forEach(r => xlsDataRow(wsDane, [r.ryzyko, r.zarzadzanie]));
-    wsDane.addRow([]);
-    xlsSectionRow(wsDane, ["WYPRACOWANE PRODUKTY Z KARTY PROJEKTU"]);
-    xlsHeaderRow(wsDane, ["Produkt", "Wartość", "Termin", "Odbiorca"]);
-    state.deliverables.forEach(d => xlsDataRow(wsDane, [d.produkt, d.wartosc, d.termin, d.odbiorca]));
-    wsDane.addRow([]);
-    xlsSectionRow(wsDane, ["POZYCJE BUDŻETOWE Z KARTY PROJEKTU"]);
-    xlsHeaderRow(wsDane, ["Pozycja", "Kwota"]);
-    state.budgetItems.forEach(b => xlsDataRow(wsDane, [b.pozycja, b.kwota], [2]));
-    wsDane.addRow([]);
-    xlsSectionRow(wsDane, ["POWIĄZANIA Z INNYMI PROJEKTAMI"]);
-    xlsHeaderRow(wsDane, ["Projekt", "Zależność", "Współpraca"]);
-    state.links.forEach(l => xlsDataRow(wsDane, [l.projekt, l.zaleznosc, l.wspolpraca]));
-    wsDane.addRow([]);
-    xlsSectionRow(wsDane, ["KOSZTY UTRZYMANIA PO PROJEKCIE"]);
-    xlsHeaderRow(wsDane, ["Rok", "Kategorie kosztów", "Kwota"]);
-    state.maintenanceCosts.forEach(m => xlsDataRow(wsDane, [m.rok, m.kategorie, m.kwota], [3]));
+    xlsSectionRow(wsDane, ["ETAPY I KAMIENIE MILOWE Z KARTY PROJEKTU"]);
+    xlsHeaderRow(wsDane, ["Nazwa", "Termin", "Typ"]);
+    state.milestones.forEach(m => xlsDataRow(wsDane, [m.nazwa, m.termin, MILESTONE_TYPE_LABELS[m.typ] || m.typ || ""]));
     wsDane.addRow([]);
     xlsSectionRow(wsDane, ["CHECKLISTA (POZIOM 1-2)"]);
     xlsHeaderRow(wsDane, ["ID", "Pytanie", "Zaznaczone"]);
@@ -1345,6 +1104,7 @@ function App(){
     xlsSectionRow(wsDiag, ["PCT — KONDYCJA CAŁEGO PRZEDSIĘWZIĘCIA"]);
     // Kolumny "Odpowiedzi — ..." to surowe odpowiedzi Likerta (1-5, po przecinku) na 6 pytań danego
     // obszaru — potrzebne do odtworzenia pełnego formularza przy ponownym imporcie, nie tylko sumy.
+    // "Działania usprawniające" to teraz lista, zapisana w jednej komórce rozdzielona " | ".
     xlsHeaderRow(wsDiag, ["Data","Punkt kontrolny","Definicja sukcesu","Przywództwo/sponsoring","Zarządzanie projektem","Zarządzanie zmianą","Średnia PCT","Działania usprawniające do kolejnego przeglądu","Kolejny przegląd","Odpowiedzi — definicja sukcesu (1-6)","Odpowiedzi — przywództwo (1-6)","Odpowiedzi — zarządzanie projektem (1-6)","Odpowiedzi — zarządzanie zmianą (1-6)"]);
     state.pctHistory.forEach(p => {
       const scores = pctScores(p);
@@ -1353,41 +1113,34 @@ function App(){
       xlsDataRow(wsDiag, [
         p.data, p.punktKontrolny,
         scores.definicjaSukcesu ?? "", scores.przywodztwo ?? "", scores.zarzadzanieProjektem ?? "", scores.zarzadzanieZmiana ?? "",
-        avg, p.decyzja, p.kolejnyPrzeglad,
+        avg, serializeTextList(p.dzialaniaUsprawniajace), p.kolejnyPrzeglad,
         serializeAnswers(p.answers.definicjaSukcesu), serializeAnswers(p.answers.przywodztwo),
         serializeAnswers(p.answers.zarzadzanieProjektem), serializeAnswers(p.answers.zarzadzanieZmiana),
       ], [7]);
     });
     xlsLabelRow(wsDiag, "Najsłabszy obszar (ostatni pomiar)", pctWeakestAreas.map(a=>a.label).join(" i ") || "");
     wsDiag.addRow([]);
-    xlsSectionRow(wsDiag, ["SZYBKA OCENA GOTOWOŚCI PRZEDSIĘWZIĘCIA (POZIOM 2)"]);
-    xlsHeaderRow(wsDiag, ["Obszar","Wynik (1-30)","Odpowiedzi (1-2)"]);
-    PCT_AREAS.forEach(a => {
-      xlsDataRow(wsDiag, [a.label, quickScoresObj[a.key] ?? "", serializeAnswers(state.quickAssessment[a.key])], [2]);
-    });
-    xlsLabelRow(wsDiag, "Najsłabszy obszar (szybka ocena)", quickWeakestAreas.map(a=>a.label).join(" i ") || "");
-    wsDiag.addRow([]);
     xlsSectionRow(wsDiag, ["GRUPY OBJĘTE ZMIANĄ"]);
-    xlsHeaderRow(wsDiag, ["Grupa","Co zmienia się w ich pracy?","Kategoria"]);
-    state.groups.forEach(g => xlsDataRow(wsDiag, [g.nazwa, g.wplyw, ALL_CATEGORIES.find(c=>c.id===g.categoryId)?.label || ""]));
+    xlsHeaderRow(wsDiag, ["Grupa","Co zmienia się w ich pracy?","Rola wobec zmiany"]);
+    state.groups.forEach(g => xlsDataRow(wsDiag, [g.nazwa, g.wplyw, CATEGORIES.find(c=>c.id===g.categoryId)?.label || ""]));
     wsDiag.addRow([]);
-    xlsSectionRow(wsDiag, ["ADKAR PER KATEGORIA (1-5)"]);
-    xlsHeaderRow(wsDiag, ["Kategoria","Awareness","Desire","Knowledge","Ability","Reinforcement","Największa bariera","Co powinno się zmienić dla tej grupy?"]);
-    activeCategories.forEach(c => {
+    xlsSectionRow(wsDiag, ["ADKAR PER ROLA WOBEC ZMIANY (1-5)"]);
+    xlsHeaderRow(wsDiag, ["Rola wobec zmiany","Awareness","Desire","Knowledge","Ability","Reinforcement","Największa bariera","Co powinno się zmienić dla tej grupy?"]);
+    CATEGORIES.forEach(c => {
       const d = state.adkarByCategory[c.id] || {};
       const b = categoryBarrier(c.id);
-      xlsDataRow(wsDiag, [c.label, d.awareness, d.desire, d.knowledge, d.ability, d.reinforcement, b.map(x=>x.label).join(" i "), d.wniosek || ""]);
+      xlsDataRow(wsDiag, [c.label, d.awareness, d.desire, d.knowledge, d.ability, d.reinforcement, barrierExportText(b), d.wniosek || ""]);
     });
     wsDiag.addRow([]);
     xlsSectionRow(wsDiag, ["ADKAR — SZYBKI SKAN"]);
-    xlsHeaderRow(wsDiag, ["Element","Średnia","Min","Kategorie z oceną ≤2","Podpowiedź"]);
+    xlsHeaderRow(wsDiag, ["Element","Średnia","Min","Role z oceną ≤2","Podpowiedź"]);
     adkarRollup.forEach(r => xlsDataRow(wsDiag, [r.label, r.avg!=null?r.avg.toFixed(2):"", r.min, r.atRisk.join("; "), r.suggestion], [2]));
 
     const wsPlan = wb.addWorksheet("Plan działań");
     wsPlan.columns = [{width:40},{width:45},{width:30},{width:14},{width:22},{width:40},{width:20},{width:16}];
-    xlsHeaderRow(wsPlan, ["Kategoria","Działanie","Kamień milowy/etap","Termin","Odpowiedzialny","Jak sprawdzimy gotowość","Dodano do harmonogramu projektu","Status"]);
+    xlsHeaderRow(wsPlan, ["Rola wobec zmiany","Działanie","Kamień milowy/etap","Termin","Odpowiedzialny","Jak sprawdzimy gotowość","Dodano do harmonogramu projektu","Status"]);
     state.actions.forEach(a => xlsDataRow(wsPlan, [
-      ALL_CATEGORIES.find(c=>c.id===a.categoryId)?.label || "",
+      CATEGORIES.find(c=>c.id===a.categoryId)?.label || "",
       a.dzialanie, a.kamien, a.termin, a.odpowiedzialny, a.weryfikacja, a.dodanoDoHarmonogramu ? "TAK" : "NIE", a.status,
     ]));
 
@@ -1395,8 +1148,8 @@ function App(){
     wsPulpit.columns = [{width:45},{width:40}];
     xlsTitleRow(wsPulpit, ["PULPIT PZZ"]);
     xlsLabelRow(wsPulpit, "Skala zmiany", level.complete ? (surveyTotal + " pkt — poziom " + level.poziom + " (" + level.label + ")") : "Ankieta nieukończona", true);
-    xlsLabelRow(wsPulpit, readinessLabel + " — średnia ostatniego pomiaru", readinessAvg!=null?readinessAvg.toFixed(1):"", true);
-    xlsLabelRow(wsPulpit, readinessLabel + " — najsłabszy obszar", readinessWeakestAreas.map(a=>a.label).join(" i ") || "");
+    xlsLabelRow(wsPulpit, "PCT — średnia ostatniego pomiaru", pctAvg!=null?pctAvg.toFixed(1):"", true);
+    xlsLabelRow(wsPulpit, "PCT — najsłabszy obszar", pctWeakestAreas.map(a=>a.label).join(" i ") || "");
     wsPulpit.addRow([]);
     xlsLabelRow(wsPulpit, "Wszystkie działania", statusCounts.all);
     STATUS_OPTIONS.forEach(s => xlsLabelRow(wsPulpit, s, statusCounts[s]));
@@ -1439,24 +1192,26 @@ function App(){
 
         const project = {
           nazwa: val(dane,"Nazwa projektu"), sponsor: val(dane,"Sponsor"), pm: val(dane,"PM"),
-          cm: val(dane,"CM"), typProjektu: val(dane,"Typ projektu"), okresRealizacji: val(dane,"Okres realizacji"),
+          cm: val(dane,"CM"), typProjektu: val(dane,"Typ projektu"), filie: val(dane,"Filie objęte"),
+          okresRealizacji: val(dane,"Okres realizacji"),
           terminPrzygotowania: val(dane,"Termin przygotowania"), czestotliwosc: val(dane,"Częstotliwość"),
-          nick: val(dane,"Nick/symbol"), filie: val(dane,"Filie objęte"), budzetRazem: val(dane,"Budżet razem"),
-          zrodloFinansowania: val(dane,"Źródło finansowania"), zwiazekZeStrategia: val(dane,"Związek ze strategią"),
-          powodyProjektu: val(dane,"Powody podjęcia"), celProjektu: val(dane,"Cel projektu"),
-          glownaKorzysc: val(dane,"Główna korzyść"), korzyscTermin: val(dane,"Termin wystąpienia korzyści"),
-          korzyscMiernik: val(dane,"Miernik korzyści"), wylaczenia: val(dane,"Wyłączenia"),
-          kartaType: val(dane,"Typ karty"),
         };
-        const usesOptionalCategory = val(dane, "Kategoria „Klienci").toString().trim().toUpperCase() === "TAK";
 
-        const milestones = xlsReadSection(dane, "KAMIENIE MILOWE Z KARTY PROJEKTU", r => ({id:cryptoId(), nazwa:r[0]||"", termin:r[1]||""}));
-        const teamMembers = xlsReadSection(dane, "SKŁAD ZESPOŁU Z KARTY PROJEKTU", r => ({id:cryptoId(), imie:r[0]||"", dzial:r[1]||"", rola:r[2]||"", zaangazowanie:r[3]||""}));
-        const risks = xlsReadSection(dane, "KLUCZOWE RYZYKA Z KARTY PROJEKTU", r => ({id:cryptoId(), ryzyko:r[0]||"", zarzadzanie:r[1]||""}));
-        const deliverables = xlsReadSection(dane, "WYPRACOWANE PRODUKTY Z KARTY PROJEKTU", r => ({id:cryptoId(), produkt:r[0]||"", wartosc:r[1]||"", termin:r[2]||"", odbiorca:r[3]||""}));
-        const budgetItems = xlsReadSection(dane, "POZYCJE BUDŻETOWE Z KARTY PROJEKTU", r => ({id:cryptoId(), pozycja:r[0]||"", kwota:r[1]||""}));
-        const links = xlsReadSection(dane, "POWIĄZANIA Z INNYMI PROJEKTAMI", r => ({id:cryptoId(), projekt:r[0]||"", zaleznosc:r[1]||"", wspolpraca:r[2]||""}));
-        const maintenanceCosts = xlsReadSection(dane, "KOSZTY UTRZYMANIA PO PROJEKCIE", r => ({id:cryptoId(), rok:r[0]||"", kategorie:r[1]||"", kwota:r[2]||""}));
+        let benefits = xlsReadSection(dane, "GŁÓWNE KORZYŚCI BIZNESOWE Z KARTY PROJEKTU", r => ({korzysc:r[0]||"", kategoria:r[1]||"", termin:r[2]||"", miernik:r[3]||""}));
+        if (!benefits.length){
+          // v1.8 miał jedną korzyść wprost w polach projektu, nie osobną sekcję listy.
+          const oldKorzysc = val(dane, "Główna korzyść biznesowa");
+          if (oldKorzysc) benefits = [{korzysc: oldKorzysc, kategoria:"", termin: val(dane,"Termin wystąpienia korzyści"), miernik: val(dane,"Miernik korzyści")}];
+        }
+
+        let milestones = xlsReadSection(dane, "ETAPY I KAMIENIE MILOWE Z KARTY PROJEKTU", r => {
+          const typEntry = Object.entries(MILESTONE_TYPE_LABELS).find(([,lbl]) => lbl === (r[2]||"").toString().trim());
+          return {id:cryptoId(), nazwa:r[0]||"", termin:r[1]||"", typ: typEntry ? typEntry[0] : "dzialanie"};
+        });
+        if (!milestones.length){
+          // v1.8 miał tylko kamienie milowe (bez etapów/typu) pod starą nazwą sekcji.
+          milestones = xlsReadSection(dane, "KAMIENIE MILOWE Z KARTY PROJEKTU", r => ({id:cryptoId(), nazwa:r[0]||"", termin:r[1]||"", typ:"kamien"}));
+        }
         const checklist12 = {};
         xlsReadSection(dane, "CHECKLISTA (POZIOM 1-2)", r => r).forEach(r => {
           if (r[0]) checklist12[r[0]] = (r[2]||"").toString().trim().toUpperCase() === "TAK";
@@ -1473,7 +1228,7 @@ function App(){
 
         const pctHeaderIdx = diag.findIndex(r => label(r) === "Data");
         const groupsHeaderIdx = diag.findIndex(r => label(r) === "Grupa");
-        const adkarHeaderIdx = diag.findIndex(r => label(r) === "Kategoria");
+        const adkarHeaderIdx = diag.findIndex(r => label(r) === "Kategoria" || label(r) === "Rola wobec zmiany");
         const pctHistory = [];
         if (pctHeaderIdx !== -1){
           for (let i = pctHeaderIdx+1; i < diag.length; i++){
@@ -1481,7 +1236,8 @@ function App(){
             if (!label(r) && !r[1]) break;
             if (label(r).startsWith("Najsłabszy obszar")) break;
             pctHistory.push({
-              id:cryptoId(), data:r[0]||"", punktKontrolny:r[1]||"", decyzja:r[7]||"", kolejnyPrzeglad:r[8]||"",
+              id:cryptoId(), data:r[0]||"", punktKontrolny:r[1]||"",
+              dzialaniaUsprawniajace: deserializeTextList(r[7]), kolejnyPrzeglad:r[8]||"",
               answers: {
                 definicjaSukcesu: deserializeAnswers(r[9], PCT_QUESTIONS.definicjaSukcesu.length),
                 przywodztwo: deserializeAnswers(r[10], PCT_QUESTIONS.przywodztwo.length),
@@ -1491,27 +1247,12 @@ function App(){
             });
           }
         }
-        // v1.7 zapisywał 2 odpowiedzi/obszar dla innego podzbioru pytań niż v1.8 (3 odpowiedzi, inne
-        // indeksy) — podstawienie starych wartości pod nowe pozycje odpowiadałoby na INNE pytania,
-        // niż faktycznie zadano. Bezpieczniej zignorować niezgodną szybką ocenę niż podstawić
-        // niewłaściwe dane; użytkownik dostaje o tym osobny komunikat zamiast cichej podmiany.
-        const quickAssessment = emptyQuickAnswers();
-        let quickAssessmentOutdated = false;
-        xlsReadSection(diag, "SZYBKA OCENA GOTOWOŚCI PRZEDSIĘWZIĘCIA (POZIOM 2)", r => r).forEach(r => {
-          const area = PCT_AREAS.find(a => a.label === (r[0]||"").toString().trim());
-          if (!area) return;
-          const expected = QUICK_ASSESSMENT_QUESTION_INDEXES[area.key].length;
-          const found = countSerializedAnswers(r[2]);
-          if (found === 0) return;
-          if (found !== expected){ quickAssessmentOutdated = true; return; }
-          quickAssessment[area.key] = deserializeAnswers(r[2], expected);
-        });
         const groups = [];
         if (groupsHeaderIdx !== -1){
           for (let i = groupsHeaderIdx+1; i < diag.length; i++){
             const r = diag[i];
             if (!label(r)) break;
-            const cat = ALL_CATEGORIES.find(c => c.label === (r[2]||""));
+            const cat = findCategoryByLabel(r[2]||"");
             groups.push({id:cryptoId(), nazwa:r[0]||"", wplyw:r[1]||"", categoryId: cat ? cat.id : ""});
           }
         }
@@ -1520,7 +1261,7 @@ function App(){
           for (let i = adkarHeaderIdx+1; i < diag.length; i++){
             const r = diag[i];
             if (!label(r)) break;
-            const cat = ALL_CATEGORIES.find(c => c.label === label(r));
+            const cat = findCategoryByLabel(label(r));
             if (!cat) continue;
             adkarByCategory[cat.id] = {
               awareness: r[1] ?? null, desire: r[2] ?? null, knowledge: r[3] ?? null,
@@ -1534,7 +1275,7 @@ function App(){
           for (let i = 1; i < plan.length; i++){
             const r = plan[i];
             if (!label(r) && !r[1]) continue;
-            const cat = ALL_CATEGORIES.find(c => c.label === label(r));
+            const cat = findCategoryByLabel(label(r));
             actions.push({
               id:cryptoId(), categoryId: cat ? cat.id : "", dzialanie:r[1]||"", kamien:r[2]||"", termin:r[3]||"",
               odpowiedzialny:r[4]||"", weryfikacja:r[5]||"", dodanoDoHarmonogramu: (r[6]||"").toString().trim().toUpperCase()==="TAK",
@@ -1544,9 +1285,9 @@ function App(){
         }
 
         // Import może od razu "dokończyć" ankietę (plik miał już komplet odpowiedzi) — bez tego
-        // efekt "Ustalono poziom X" (poniżej, reaguje na zmianę level.poziom) nadpisałby ten toast
-        // milisekundy później, więc np. ostrzeżenie o pominiętej szybkiej ocenie nigdy nie byłoby
-        // widoczne. Aktualizujemy ref PRZED setState, żeby ten efekt uznał poziom za już znany.
+        // efekt "Ustalono poziom X" (poniżej, reaguje na zmianę level.poziom) nadpisałby toast
+        // "Wczytano plik" milisekundy później. Aktualizujemy ref PRZED setState, żeby ten efekt
+        // uznał poziom za już znany.
         const importedAllIds = [...SURVEY.partI.map(q=>q.id), ...SURVEY.partII_items.map(it=>it.id), SURVEY.partII_extra.id, ...SURVEY.partIII.map(q=>q.id)];
         let importedTotal = 0, importedAnswered = 0;
         importedAllIds.forEach(id => {
@@ -1557,12 +1298,10 @@ function App(){
         prevPoziomRef.current = importedLevel.complete ? importedLevel.poziom : null;
 
         setState(s => sanitizeProjectState({
-          ...s, project: {...s.project, ...project}, surveyAnswers, pctHistory, quickAssessment, groups, adkarByCategory, actions,
-          usesOptionalCategory, milestones, teamMembers, risks, deliverables, budgetItems, links, maintenanceCosts, checklist12,
+          ...s, project: {...s.project, ...project}, surveyAnswers, pctHistory, groups, adkarByCategory, actions,
+          milestones, benefits, checklist12,
         }));
-        setToast(quickAssessmentOutdated
-          ? "Wczytano plik: " + file.name + ". Plik pochodzi ze starszej wersji — szybka ocena gotowości (poziom 2) została pominięta, bo zestaw pytań się zmienił. Pozostałe dane wczytano poprawnie."
-          : "Wczytano plik: " + file.name);
+        setToast("Wczytano plik: " + file.name);
       } catch(e){ alert("Nie udało się wczytać tego pliku — rozpoznawany jest tylko plik zapisany przyciskiem „Zapisz plik”."); }
     };
     reader.readAsArrayBuffer(file);
@@ -1593,10 +1332,28 @@ function App(){
     });
   }
   function addPctCheckpoint(){
-    setState(s => ({...s, pctHistory: [...s.pctHistory, {id:cryptoId(), data:"", punktKontrolny:"", decyzja:"", kolejnyPrzeglad:"", answers: emptyPctAnswers()}]}));
+    setState(s => ({...s, pctHistory: [...s.pctHistory, {id:cryptoId(), data:"", punktKontrolny:"", dzialaniaUsprawniajace:[], kolejnyPrzeglad:"", answers: emptyPctAnswers()}]}));
   }
-  function setQuickAnswer(areaKey, qIndex, value){
-    setState(s => ({...s, quickAssessment: {...s.quickAssessment, [areaKey]: s.quickAssessment[areaKey].map((v,i)=> i===qIndex ? value : v)}}));
+  function addPctAction(idx){
+    setState(s => {
+      const hist = s.pctHistory.slice();
+      hist[idx] = {...hist[idx], dzialaniaUsprawniajace: [...hist[idx].dzialaniaUsprawniajace, ""]};
+      return {...s, pctHistory: hist};
+    });
+  }
+  function updatePctAction(idx, actionIdx, value){
+    setState(s => {
+      const hist = s.pctHistory.slice();
+      hist[idx] = {...hist[idx], dzialaniaUsprawniajace: hist[idx].dzialaniaUsprawniajace.map((v,i)=> i===actionIdx ? value : v)};
+      return {...s, pctHistory: hist};
+    });
+  }
+  function removePctAction(idx, actionIdx){
+    setState(s => {
+      const hist = s.pctHistory.slice();
+      hist[idx] = {...hist[idx], dzialaniaUsprawniajace: hist[idx].dzialaniaUsprawniajace.filter((_,i)=> i!==actionIdx)};
+      return {...s, pctHistory: hist};
+    });
   }
   function addGroup(){
     setState(s => ({...s, groups: [...s.groups, {id:cryptoId(), nazwa:"", wplyw:"", categoryId: ""}]}));
@@ -1610,11 +1367,7 @@ function App(){
   function setAdkar(catId, key, value){
     setState(s => ({...s, adkarByCategory: {...s.adkarByCategory, [catId]: {...s.adkarByCategory[catId], [key]: value}}}));
   }
-  function enableOptionalCategory(){
-    setState(s => ({...s, usesOptionalCategory: true}));
-  }
   function addAction(categoryId){
-    if ((actionsByCategory[categoryId]||[]).length >= MAX_ACTIONS_PER_CATEGORY) return;
     setState(s => ({...s, actions: [...s.actions, {
       id:cryptoId(), categoryId, dzialanie:"", kamien:"", termin:"", odpowiedzialny:"",
       weryfikacja:"", dodanoDoHarmonogramu:false, status:"Do zaplanowania",
@@ -1631,16 +1384,15 @@ function App(){
   }
 
   // Poziom 1 (mała zmiana) dostaje tylko checklistę — grupy i reszta zostają w karcie projektu.
-  // Poziom 2 (średnia) dostaje checklistę I Diagnozę/Plan/Pulpit, z krótką "Szybką oceną
-  // gotowości" zamiast pełnego PCT. Poziom 3 (duża) dostaje wszystko, łącznie z pełnym PCT.
-  // Obie flagi liczone raz i używane też przy renderze w <main> — żeby warunek nie rozjechał
-  // się między tabsDef i renderem (tak jak się rozjechał, zanim ta flaga istniała).
+  // Poziom 2 (średnia) dostaje checklistę + Diagnozę (grupy, ADKAR) + Plan/Pulpit, bez PCT.
+  // Poziom 3 (duża) dostaje wszystko, łącznie z pełnym PCT.
+  // Flagi liczone raz i używane też przy renderze w <main> — żeby warunek nie rozjechał się
+  // między tabsDef i renderem (tak jak się rozjechał, zanim ta flaga istniała).
   const canSeeChecklist = level.complete && level.poziom < 3;
   const canSeeDiagnoza = level.complete && level.poziom >= 2;
   const canSeePct = level.complete && level.poziom === 3;
-  const canSeeQuick = level.complete && level.poziom === 2;
-  // Twarda blokada (nie tylko ostrzeżenie): dopóki jakaś grupa ma kategorię, ale brakuje jej
-  // opisu "Co zmienia się w ich pracy?" (albo brakuje kategorii), Plan działań i Pulpit są
+  // Twarda blokada (nie tylko ostrzeżenie): dopóki jakaś grupa ma rolę wobec zmiany, ale brakuje
+  // jej opisu "Co zmienia się w ich pracy?" (albo brakuje samej roli), Plan działań i Pulpit są
   // niedostępne — wymuszamy uzupełnienie diagnozy, zanim będzie można przejść dalej.
   const hasIncompleteGroups = state.groups.some(g => !g.categoryId || !(g.wplyw||"").trim());
   const canSeePlanPulpit = canSeeDiagnoza && !hasIncompleteGroups;
@@ -1710,38 +1462,29 @@ function App(){
         )}
         {tab==="dane" && <DaneProjektu project={state.project} setField={setProjectField}
           kartaInputRef={kartaInputRef} onKartaFile={handleKartaFile}
-          kartaImport={kartaImport} onApplyKartaFields={applyKartaFields} onApplyKartaGroups={applyKartaGroups}
-          onApplyKartaMilestones={applyKartaMilestones} onApplyKartaTeam={applyKartaTeam} onApplyKartaRisks={applyKartaRisks}
-          onApplyKartaDeliverables={applyKartaDeliverables} onApplyKartaBudgetItems={applyKartaBudgetItems}
-          onApplyKartaLinks={applyKartaLinks} onApplyKartaMaintenanceCosts={applyKartaMaintenanceCosts}
-          onApplyKartaAll={applyKartaAll}
-          onDismissKarta={dismissKartaImport}
-          milestones={state.milestones} teamMembers={state.teamMembers} risks={state.risks}
-          deliverables={state.deliverables} budgetItems={state.budgetItems} links={state.links} maintenanceCosts={state.maintenanceCosts}
-          budzetRazemComputed={budzetRazemComputed}
+          kartaImport={kartaImport} onUndoKarta={undoKartaImport} onDismissKarta={dismissKartaImport}
+          canUndoKarta={!!kartaPreImportSnapshot}
+          benefits={state.benefits}
         />}
-        {tab==="ankieta" && <Ankieta answers={state.surveyAnswers} setAnswer={setSurveyAnswer} total={surveyTotal} level={level}/>}
+        {tab==="ankieta" && <Ankieta answers={state.surveyAnswers} setAnswer={setSurveyAnswer} total={surveyTotal} level={level} goTo={setTab}/>}
         {tab==="checklisty" && canSeeChecklist && <Checklisty level={level} checklist={state.checklist12} toggle={toggleChecklist}/>}
         {tab==="diagnoza" && canSeeDiagnoza && <Diagnoza
           state={state} pctAvg={pctAvg} pctWeakestAreas={pctWeakestAreas} pctLatestScores={pctLatestScores}
           showPct={canSeePct} setPct={setPct} setPctAnswer={setPctAnswer} addPctCheckpoint={addPctCheckpoint}
-          showQuick={canSeeQuick} quickScoresObj={quickScoresObj} quickAvg={quickAvg} quickWeakestAreas={quickWeakestAreas}
-          setQuickAnswer={setQuickAnswer}
+          addPctAction={addPctAction} updatePctAction={updatePctAction} removePctAction={removePctAction}
           hasIncompleteGroups={hasIncompleteGroups}
           addGroup={addGroup} updateGroup={updateGroup} removeGroup={removeGroup}
           setAdkar={setAdkar} categoryBarrier={categoryBarrier} adkarRollup={adkarRollup}
-          usesOptionalCategory={state.usesOptionalCategory} enableOptionalCategory={enableOptionalCategory}
         />}
         {tab==="plan" && canSeePlanPulpit && <PlanDzialan
           actionsByCategory={actionsByCategory} categoryBarrier={categoryBarrier}
           adkarByCategory={state.adkarByCategory} groups={state.groups}
           addAction={addAction} updateAction={updateAction} removeAction={removeAction}
-          usesOptionalCategory={state.usesOptionalCategory}
-          milestones={state.milestones} teamMembers={state.teamMembers}
+          milestones={state.milestones}
         />}
         {tab==="pulpit" && canSeePlanPulpit && <Pulpit
           project={state.project} level={level} surveyTotal={surveyTotal}
-          readinessAvg={readinessAvg} readinessWeakestAreas={readinessWeakestAreas} readinessLabel={readinessLabel}
+          pctAvg={pctAvg} pctWeakestAreas={pctWeakestAreas}
           statusCounts={statusCounts} signals={signals}
           goTo={setTab}
         />}
@@ -1780,48 +1523,11 @@ function App(){
 /* ---------- Widoki ---------- */
 
 const KARTA_FIELD_LABELS = {
-  nazwa: "Nazwa projektu/programu", nick: "Nick/symbol", sponsor: "Sponsor", pm: "PM / Lider projektu",
-  typProjektu: "Typ projektu", filie: "Filie objęte projektem", zwiazekZeStrategia: "Związek ze strategią",
-  okresRealizacji: "Okres realizacji", powodyProjektu: "Powody podjęcia projektu", celProjektu: "Cel projektu",
-  glownaKorzysc: "Główna korzyść biznesowa", budzetRazem: "Budżet razem (brutto)",
-  wylaczenia: "Wyłączenia", zrodloFinansowania: "Źródło finansowania",
-  korzyscTermin: "Termin wystąpienia korzyści", korzyscMiernik: "Miernik korzyści",
+  nazwa: "Nazwa projektu/programu", sponsor: "Sponsor", pm: "PM / Lider projektu",
+  typProjektu: "Typ projektu", filie: "Filie objęte projektem", okresRealizacji: "Okres realizacji",
 };
 
-function KartaImportSection({title, count, previewPills, onApply, applyLabel}){
-  if (count === 0) return null;
-  return (
-    <React.Fragment>
-      <p className="hint" style={{margin:"0 0 6px"}}>{title} ({count}):</p>
-      {previewPills && <div className="pill-list" style={{marginBottom:8}}>{previewPills}</div>}
-      <button className="small" onClick={onApply} style={{marginBottom:14}}>{applyLabel}</button>
-    </React.Fragment>
-  );
-}
-
-function DaneProjektu({project, setField, kartaInputRef, onKartaFile, kartaImport,
-  onApplyKartaFields, onApplyKartaGroups, onApplyKartaMilestones, onApplyKartaTeam, onApplyKartaRisks,
-  onApplyKartaDeliverables, onApplyKartaBudgetItems, onApplyKartaLinks, onApplyKartaMaintenanceCosts, onApplyKartaAll,
-  onDismissKarta, milestones, teamMembers, risks, deliverables, budgetItems, links, maintenanceCosts, budzetRazemComputed}){
-  const kartaType = project.kartaType;
-  // Budżet razem: karty rzadko mają wypełniony wiersz "RAZEM" — wartość z karty (gdy podana) nadpisuje
-  // wyliczoną sumę pozycji budżetowych, w przeciwnym razie pokazujemy sumę wyliczoną automatycznie.
-  const budzetRazemValue = (project.budzetRazem||"").trim() || budzetRazemComputed || "";
-  const budzetRazemNote = (project.budzetRazem||"").trim() ? "" : (budzetRazemComputed ? " (wyliczone automatycznie z pozycji budżetowych)" : "");
-  // Pola, których dany szablon karty nie zawiera (P1.5) — pokazujemy to wyraźnie zamiast pustego pola,
-  // żeby nie wyglądało na nieudany import. Karta uczelniana ma MPK/zlecenie zamiast źródła finansowania,
-  // karta programu nie ma pola Nick/symbol ani tabeli składu zespołu.
-  const extraFieldRows = [
-    {label:"Nick/symbol", value: project.nick, absent: kartaType==="program", absentNote:"karta programu nie zawiera pola Nick/symbol"},
-    {label:"Filie/podmioty objęte projektem", value: project.filie},
-    {label:"Budżet razem (brutto)", value: budzetRazemValue, note: budzetRazemNote},
-    {label:"Źródło finansowania", value: project.zrodloFinansowania, absent: kartaType==="uczelnia", absentNote:"karta uczelniana ma MPK/zlecenie zamiast źródła finansowania"},
-    {label:"Związek ze strategią", value: project.zwiazekZeStrategia},
-    {label:"Wyłączenia (czego projekt NIE obejmuje)", value: project.wylaczenia},
-    {label:"Termin wystąpienia korzyści", value: project.korzyscTermin},
-    {label:"Miernik korzyści", value: project.korzyscMiernik},
-  ].filter(r => (r.value && r.value.trim()) || r.absent);
-  const hasReference = milestones.length>0 || teamMembers.length>0 || risks.length>0 || deliverables.length>0 || budgetItems.length>0 || links.length>0 || maintenanceCosts.length>0 || extraFieldRows.length>0;
+function DaneProjektu({project, setField, kartaInputRef, onKartaFile, kartaImport, onUndoKarta, canUndoKarta, onDismissKarta, benefits}){
   return (
     <React.Fragment>
       <div className="card">
@@ -1841,10 +1547,9 @@ function DaneProjektu({project, setField, kartaInputRef, onKartaFile, kartaImpor
       <div className="card">
         <h2>Wczytaj kartę projektu</h2>
         <p className="hint">
-          Podaj kartę projektu (.docx, standardowy szablon Grupy Merito) — narzędzie wyciąga z niej praktycznie wszystko:
-          dane ogólne, cel i kontekst, wyłączenia, budżet, grupy interesariuszy, harmonogram (kamienie milowe), skład
-          zespołu (w tym sporadyczne zaangażowanie), kluczowe ryzyka, produkty projektu i powiązania z innymi projektami.
-          Nic nie zostanie nadpisane bez Twojej zgody — najpierw zobaczysz podgląd i sam wybierasz, co zastosować.
+          Podaj kartę projektu (.docx, standardowy szablon Grupy Merito) — narzędzie wyciąga z niej metryczkę, główne
+          korzyści biznesowe, etapy i kamienie milowe oraz grupy objęte zmianą, i stosuje je od razu. Jeśli coś zaciągnie
+          się źle, popraw pole ręcznie poniżej albo cofnij cały import.
         </p>
         <input ref={kartaInputRef} type="file" accept=".docx" style={{display:"none"}}
           onChange={e => { if (e.target.files[0]) onKartaFile(e.target.files[0]); e.target.value=""; }} />
@@ -1859,51 +1564,11 @@ function DaneProjektu({project, setField, kartaInputRef, onKartaFile, kartaImpor
         )}
 
         {kartaImport && !kartaImport.failed && (
-          <div className="action-row" style={{marginTop:14}}>
-            <div className="top"><strong>Wykryto w pliku „{kartaImport.fileName}”</strong></div>
-            <button className="primary small" onClick={onApplyKartaAll} style={{marginBottom:16}}>Zastosuj wszystko naraz</button>
-
-            {Object.keys(kartaImport.fields).length > 0 ? (
-              <table style={{marginBottom:12}}>
-                <tbody>
-                  {Object.entries(kartaImport.fields).map(([k,v]) => (
-                    <tr key={k}><th style={{width:180}}>{KARTA_FIELD_LABELS[k]||k}</th><td>{v}</td></tr>
-                  ))}
-                </tbody>
-              </table>
-            ) : <p className="hint">Nie wykryto pól danych projektu.</p>}
-            {Object.keys(kartaImport.fields).length > 0 &&
-              <button className="small" onClick={onApplyKartaFields} style={{marginBottom:14}}>Zastosuj dane projektu</button>}
-
-            <KartaImportSection title="Grupy interesariuszy" count={kartaImport.groups.length} onApply={onApplyKartaGroups}
-              applyLabel={"Dodaj " + kartaImport.groups.length + " grup interesariuszy"}
-              previewPills={kartaImport.groups.map((g,i) => <span key={i} className="pill">{g.nazwa}</span>)}/>
-
-            <KartaImportSection title="Kamienie milowe z harmonogramu" count={kartaImport.milestones.length} onApply={onApplyKartaMilestones}
-              applyLabel={"Dodaj " + kartaImport.milestones.length + " kamieni milowych"}
-              previewPills={kartaImport.milestones.map((m,i) => <span key={i} className="pill">{m.nazwa}{m.termin?" — "+m.termin:""}</span>)}/>
-
-            <KartaImportSection title="Skład zespołu (w tym sporadyczne zaangażowanie)" count={kartaImport.team.length} onApply={onApplyKartaTeam}
-              applyLabel={"Dodaj " + kartaImport.team.length + " osób zespołu"}
-              previewPills={kartaImport.team.map((t,i) => <span key={i} className="pill">{t.imie}</span>)}/>
-
-            <KartaImportSection title="Kluczowe ryzyka projektu" count={kartaImport.risks.length} onApply={onApplyKartaRisks}
-              applyLabel={"Dodaj " + kartaImport.risks.length + " ryzyk (referencyjnie)"}/>
-
-            <KartaImportSection title="Wypracowane produkty" count={kartaImport.deliverables.length} onApply={onApplyKartaDeliverables}
-              applyLabel={"Dodaj " + kartaImport.deliverables.length + " produktów (referencyjnie)"}
-              previewPills={kartaImport.deliverables.map((d,i) => <span key={i} className="pill">{d.produkt}</span>)}/>
-
-            <KartaImportSection title="Pozycje budżetowe" count={kartaImport.budgetItems.length} onApply={onApplyKartaBudgetItems}
-              applyLabel={"Dodaj " + kartaImport.budgetItems.length + " pozycji budżetowych (referencyjnie)"}/>
-
-            <KartaImportSection title="Powiązania z innymi projektami" count={kartaImport.links.length} onApply={onApplyKartaLinks}
-              applyLabel={"Dodaj " + kartaImport.links.length + " powiązań (referencyjnie)"}/>
-
-            <KartaImportSection title="Koszty utrzymania po projekcie" count={kartaImport.maintenanceCosts.length} onApply={onApplyKartaMaintenanceCosts}
-              applyLabel={"Dodaj " + kartaImport.maintenanceCosts.length + " pozycji (referencyjnie)"}/>
-
-            <div><button className="small" onClick={onDismissKarta}>Odrzuć podgląd</button></div>
+          <div className="banner info" style={{marginTop:14}}>
+            <strong>Zastosowano dane z pliku „{kartaImport.fileName}”:</strong>{" "}
+            {kartaImport.fieldsCount} pól metryczki, {kartaImport.groupsAdded} nowych grup,{" "}
+            {kartaImport.milestonesAdded} nowych etapów/kamieni milowych, {kartaImport.benefitsCount} korzyści biznesowych.
+            {canUndoKarta && <div style={{marginTop:8}}><button className="small" onClick={onUndoKarta}>Cofnij import</button></div>}
           </div>
         )}
       </div>
@@ -1914,128 +1579,43 @@ function DaneProjektu({project, setField, kartaInputRef, onKartaFile, kartaImpor
         <div className="grid cols2">
           <Field label="Nazwa projektu/programu"><input type="text" value={project.nazwa} onChange={e=>setField("nazwa", e.target.value)}/></Field>
           <Field label="Typ projektu"><input type="text" value={project.typProjektu} onChange={e=>setField("typProjektu", e.target.value)} placeholder="np. program, projekt, pilotaż"/></Field>
-          <Field label="Sponsor"><input type="text" value={project.sponsor} onChange={e=>setField("sponsor", e.target.value)}/></Field>
-          <Field label="PM / Lider projektu"><input type="text" value={project.pm} onChange={e=>setField("pm", e.target.value)}/></Field>
+          <Field label="Sponsor"><input type="text" value={project.sponsor} onChange={e=>setField("sponsor", e.target.value)} placeholder="jeśli więcej niż jedna osoba, oddziel średnikiem"/></Field>
+          <Field label="PM / Lider projektu"><input type="text" value={project.pm} onChange={e=>setField("pm", e.target.value)} placeholder="jeśli więcej niż jedna osoba, oddziel średnikiem"/></Field>
           <Field label="CM (Change Manager, jeśli powołany)"><input type="text" value={project.cm} onChange={e=>setField("cm", e.target.value)}/></Field>
+          <Field label="Filie/podmioty objęte projektem"><input type="text" value={project.filie} onChange={e=>setField("filie", e.target.value)}/></Field>
           <Field label="Okres realizacji projektu"><input type="text" value={project.okresRealizacji} onChange={e=>setField("okresRealizacji", e.target.value)} placeholder="np. 02.02.2026 – 31.01.2027"/></Field>
           <Field label="Termin przygotowania PZZ"><input type="date" value={project.terminPrzygotowania} onChange={e=>setField("terminPrzygotowania", e.target.value)}/></Field>
-          <Field label="Częstotliwość przeglądu PZZ"><input type="text" value={project.czestotliwosc} onChange={e=>setField("czestotliwosc", e.target.value)} placeholder="np. co miesiąc"/></Field>
+          <Field label="Częstotliwość przeglądu PZZ" hint="Częstotliwość do uzgodnienia z PMO.">
+            <input type="text" value={project.czestotliwosc} onChange={e=>setField("czestotliwosc", e.target.value)} placeholder="np. co miesiąc"/>
+          </Field>
         </div>
         <p className="hint" style={{marginTop:10}}>Karta projektu nie zawiera Change Managera ani rytmu przeglądu PZZ — te dwa pola zawsze trzeba wpisać ręcznie.</p>
       </div>
 
-      <div className="card">
-        <h2>Kontekst projektu</h2>
-        <p className="hint">
-          Trzy pola, które realnie potrzebne są do diagnozy zmiany — po wczytaniu karty projektu zaciągają się
-          automatycznie, możesz je swobodnie doprecyzować. Pozostałe dane z karty (nick, filie, budżet, źródło
-          finansowania, związek ze strategią, wyłączenia) znajdziesz niżej, w bloku „Z karty projektu (referencyjnie)”.
-        </p>
-        <Field label="Powody podjęcia projektu"><textarea value={project.powodyProjektu} onChange={e=>setField("powodyProjektu", e.target.value)}/></Field>
-        <Field label="Cel projektu"><textarea value={project.celProjektu} onChange={e=>setField("celProjektu", e.target.value)}/></Field>
-        <Field label="Główna korzyść biznesowa"><textarea value={project.glownaKorzysc} onChange={e=>setField("glownaKorzysc", e.target.value)}/></Field>
-      </div>
-
-      {hasReference && (
+      {benefits.length > 0 && (
         <div className="card">
-          <h2>Z karty projektu (referencyjnie)</h2>
-          <p className="hint">Kamienie milowe i osoby z zespołu podpowiadają się jako opcje w polach „Kamień milowy/etap” i „Odpowiedzialny” w Planie działań. Reszta to wgląd, bez wpływu na diagnozę czy plan.</p>
-          {extraFieldRows.length > 0 && (
-            <details open>
-              <summary style={{cursor:"pointer", fontWeight:600, marginBottom:8}}>Dodatkowe dane z karty</summary>
-              <table style={{marginBottom:14}}>
-                <tbody>
-                  {extraFieldRows.map(r => (
-                    <tr key={r.label}>
-                      <th style={{width:220}}>{r.label}</th>
-                      <td>
-                        {r.absent
-                          ? <span className="hint" style={{margin:0}}>brak w tym szablonie{r.absentNote ? " — "+r.absentNote : ""}</span>
-                          : <React.Fragment>{r.value}{r.note && <span className="hint" style={{margin:0}}>{r.note}</span>}</React.Fragment>}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </details>
-          )}
-          {kartaType==="program" && teamMembers.length===0 && (
-            <p className="hint">Karta programu nie zawiera tabeli składu zespołu — to nie błąd importu.</p>
-          )}
-          {milestones.length > 0 && (
-            <details open>
-              <summary style={{cursor:"pointer", fontWeight:600, marginBottom:8}}>Kamienie milowe ({milestones.length})</summary>
-              <table style={{marginBottom:14}}>
-                <thead><tr><th>Kamień milowy</th><th>Termin</th></tr></thead>
-                <tbody>{milestones.map(m => <tr key={m.id}><td>{m.nazwa}</td><td>{m.termin}</td></tr>)}</tbody>
-              </table>
-            </details>
-          )}
-          {teamMembers.length > 0 && (
-            <details>
-              <summary style={{cursor:"pointer", fontWeight:600, marginBottom:8}}>Skład zespołu ({teamMembers.length})</summary>
-              <table style={{marginBottom:14}}>
-                <thead><tr><th>Imię i nazwisko</th><th>Dział</th><th>Rola</th></tr></thead>
-                <tbody>{teamMembers.map(t => <tr key={t.id}><td>{t.imie}</td><td>{t.dzial}</td><td>{t.rola}</td></tr>)}</tbody>
-              </table>
-            </details>
-          )}
-          {risks.length > 0 && (
-            <details>
-              <summary style={{cursor:"pointer", fontWeight:600, marginBottom:8}}>Kluczowe ryzyka projektu ({risks.length})</summary>
-              <table style={{marginBottom:14}}>
-                <thead><tr><th>Ryzyko</th><th>Sposób zarządzania</th></tr></thead>
-                <tbody>{risks.map(r => <tr key={r.id}><td>{r.ryzyko}</td><td>{r.zarzadzanie}</td></tr>)}</tbody>
-              </table>
-            </details>
-          )}
-          {deliverables.length > 0 && (
-            <details>
-              <summary style={{cursor:"pointer", fontWeight:600, marginBottom:8}}>Wypracowane produkty ({deliverables.length})</summary>
-              <table style={{marginBottom:14}}>
-                <thead><tr><th>Produkt</th><th>Wartość</th><th>Termin</th><th>Odbiorca</th></tr></thead>
-                <tbody>{deliverables.map(d => <tr key={d.id}><td>{d.produkt}</td><td>{d.wartosc}</td><td>{d.termin}</td><td>{d.odbiorca}</td></tr>)}</tbody>
-              </table>
-            </details>
-          )}
-          {budgetItems.length > 0 && (
-            <details>
-              <summary style={{cursor:"pointer", fontWeight:600, marginBottom:8}}>Pozycje budżetowe ({budgetItems.length})</summary>
-              <table style={{marginBottom:14}}>
-                <thead><tr><th>Pozycja</th><th>Kwota</th></tr></thead>
-                <tbody>{budgetItems.map(b => <tr key={b.id}><td>{b.pozycja}</td><td>{b.kwota}</td></tr>)}</tbody>
-              </table>
-            </details>
-          )}
-          {links.length > 0 && (
-            <details>
-              <summary style={{cursor:"pointer", fontWeight:600, marginBottom:8}}>Powiązania z innymi projektami ({links.length})</summary>
-              <table style={{marginBottom:14}}>
-                <thead><tr><th>Projekt</th><th>Zależność</th><th>Współpraca</th></tr></thead>
-                <tbody>{links.map(l => <tr key={l.id}><td>{l.projekt}</td><td>{l.zaleznosc}</td><td>{l.wspolpraca}</td></tr>)}</tbody>
-              </table>
-            </details>
-          )}
-          {maintenanceCosts.length > 0 && (
-            <details>
-              <summary style={{cursor:"pointer", fontWeight:600, marginBottom:8}}>Koszty utrzymania po projekcie ({maintenanceCosts.length})</summary>
-              <table>
-                <thead><tr><th>Rok</th><th>Kategorie kosztów</th><th>Kwota</th></tr></thead>
-                <tbody>{maintenanceCosts.map(m => <tr key={m.id}><td>{m.rok}</td><td>{m.kategorie}</td><td>{m.kwota}</td></tr>)}</tbody>
-              </table>
-            </details>
-          )}
+          <h2>Główne korzyści biznesowe</h2>
+          <p className="hint">Z karty projektu — przydają się przy ocenie obszaru „definicja sukcesu” w Diagnozie.</p>
+          <table>
+            <thead><tr><th>Korzyść</th><th>Kategoria</th><th>Kiedy wystąpi</th><th>Miernik</th></tr></thead>
+            <tbody>
+              {benefits.map((b,i) => <tr key={i}><td>{b.korzysc}</td><td>{b.kategoria}</td><td>{b.termin}</td><td>{b.miernik}</td></tr>)}
+            </tbody>
+          </table>
         </div>
       )}
     </React.Fragment>
   );
 }
 
-function Ankieta({answers, setAnswer, total, level}){
+function Ankieta({answers, setAnswer, total, level, goTo}){
   const answeredCount = Object.values(answers).filter(v => v !== null && v !== undefined && v !== "").length;
   return (
     <div className="card">
       <h2>Ankieta — ocena skali zmiany</h2>
+      <p className="hint">Celem ankiety jest określenie skali zmiany i jej wpływu na pracowników, aby dobrać odpowiednie podejście do zarządzania zmianą w Twoim projekcie.</p>
+      <p className="hint">Odpowiadaj z perspektywy wpływu zmiany na codzienną pracę ludzi objętych zmianą.</p>
+      <p className="hint">Jeśli masz wątpliwości, skontaktuj się z PMO.</p>
       <p className="hint">Łącznie 65 punktów. 0–25 = mała zmiana (niskie ryzyko), 26–45 = średnia (średnie ryzyko), &gt;45 = duża (wysokie ryzyko). Wynik decyduje, czy korzystasz z pełnego planu (poziom 3), czy z krótszej checklisty (poziom 1–2).</p>
 
       <h3>Część I — Charakterystyka zmiany</h3>
@@ -2080,6 +1660,19 @@ function Ankieta({answers, setAnswer, total, level}){
         <div><strong>{total} / 65 pkt</strong> — {level.complete ? level.label : ("odpowiedziano na " + answeredCount + "/" + SURVEY_QUESTION_COUNT + " pytań")}</div>
         <Badge tone={level.color}>{level.complete ? ("Poziom " + level.poziom + " · " + level.risk) : "W trakcie"}</Badge>
       </div>
+      {level.complete && (
+        <div className="banner info">
+          {level.poziom === 1
+            ? <div>Wróć do karty projektu i uzupełnij tabelę „Grupy objęte zmianą”.</div>
+            : (
+              <div className="flex-between">
+                <div>Przejdź do zakładki Diagnoza.</div>
+                <button className="small primary" onClick={()=>goTo("diagnoza")}>Przejdź do Diagnozy</button>
+              </div>
+            )}
+          <p style={{margin:"10px 0 0"}}>Dziękujemy za wypełnienie ankiety.</p>
+        </div>
+      )}
     </div>
   );
 }
@@ -2107,7 +1700,7 @@ function Checklisty({level, checklist, toggle}){
         Ten projekt kwalifikuje się do uproszczonej ścieżki — <strong>Poziom {level.poziom} ({level.label})</strong>.
         {level.poziom === 1
           ? " Pełny Plan Zarządzania Zmianą (Diagnoza z PCT i ADKAR + Plan działań) jest przeznaczony dla średnich i dużych zmian (poziom 2–3) i dla tego projektu nie jest pokazywany — grupy objęte zmianą wypełnij bezpośrednio w karcie projektu."
-          : " Oprócz tej checklisty masz też dostęp do zakładek „Diagnoza” (szybka ocena gotowości + ADKAR) i „Plan działań”."}
+          : " Oprócz tej checklisty masz też dostęp do zakładek „Diagnoza” (grupy objęte zmianą + ADKAR) i „Plan działań”."}
         {" "}Jeśli w trakcie pracy okaże się, że zmiana jest inna niż wskazała ankieta, wróć do zakładki „Ankieta” i popraw odpowiedzi.
       </div>
       <h2>Checklista — poziom {level.poziom}</h2>
@@ -2134,61 +1727,67 @@ function Checklisty({level, checklist, toggle}){
   );
 }
 
-// Wykres radarowy (pajęczyna) na 4 osiach zamiast klasycznego trójkąta PCT z dorzuconym czwartym
-// wierzchołkiem — trójkąt ma sens tylko dla trzech wierzchołków (dorzucenie czwartego jako węzła
-// centralnego zniekształca kształt znany z materiałów Prosci), a radar naturalnie traktuje
-// wszystkie 4 obszary jako równoważne osie i skaluje się identycznie do pełnej oceny (6
-// pytań/obszar) i szybkiej (3 pytania/obszar), bo obie są znormalizowane do wspólnej skali 1-30
-// (patrz pctAreaScore). `scores` to obiekt {obszar: liczba|null} — dokładnie to, co zwraca
-// pctScores/quickScores i co dostaje computeWeakestPctAreas, więc wykres zawsze pokazuje to samo,
-// co baner tekstowy nad/pod nim.
-function PctRadarChart({scores, weakestKeys}){
-  const size = 400, center = size/2, radius = 95, labelR = radius + 50;
-  const n = PCT_AREAS.length;
-  const angleFor = i => (-90 + i * (360/n)) * Math.PI/180;
-  const pointAt = (i, value) => {
-    const a = angleFor(i);
-    const r = (Math.max(0, Math.min(30, value)) / 30) * radius;
-    return [center + r*Math.cos(a), center + r*Math.sin(a)];
+// Klasyczny trójkąt PCT: definicja sukcesu w środku, na trzech ramionach przywództwo/sponsoring,
+// zarządzanie projektem i zarządzanie zmianą — zamiast wykresu radarowego z v1.7 (zespół chciał
+// rozpoznawalny kształt Prosci, nie czwarty wierzchołek doklejony do trójkąta). Stały, jasny
+// trójkąt referencyjny (kontur zawsze tego samego rozmiaru) plus punkty na ramionach, których
+// odległość od środka jest proporcjonalna do wyniku (0/30 = w środku, 30/30 = w wierzchołku) —
+// ten sam mechanizm skalowania co poprzednio w radarze, tylko na 3 osiach. Węzeł centralny koduje
+// wynik kolorem (jak reszta) i rozmiarem kropki (większa = lepszy wynik), bo nie ma ramienia,
+// którego długość mogłaby to pokazać. `scores` to obiekt {obszar: liczba|null} — dokładnie to, co
+// zwraca pctScores i co dostaje computeWeakestPctAreas, więc wykres zawsze pokazuje to samo, co
+// baner tekstowy nad/pod nim.
+function PctTriangle({scores, weakestKeys}){
+  const size = 400, center = size/2, radius = 130, labelR = radius + 46;
+  const areaOrder = ["przywodztwo", "zarzadzanieZmiana", "zarzadzanieProjektem"];
+  const angles = {przywodztwo: -90, zarzadzanieZmiana: 30, zarzadzanieProjektem: 150};
+  const areaByKey = {}; PCT_AREAS.forEach(a => { areaByKey[a.key] = a; });
+  const vertexAt = (key, frac) => {
+    const rad = angles[key] * Math.PI/180;
+    return [center + radius*frac*Math.cos(rad), center + radius*frac*Math.sin(rad)];
   };
-  const vertexAt = i => pointAt(i, 30);
-  const dataPoints = PCT_AREAS.map((a,i) => pointAt(i, scores[a.key] ?? 0));
+  const dataPoints = areaOrder.map(k => {
+    const frac = Math.max(0, Math.min(30, scores[k] ?? 0)) / 30;
+    return vertexAt(k, frac);
+  });
   const pathD = dataPoints.map((p,i) => (i===0?"M":"L")+p[0].toFixed(1)+","+p[1].toFixed(1)).join(" ") + " Z";
-  const allScored = PCT_AREAS.every(a => scores[a.key] != null);
-  const anyScored = PCT_AREAS.some(a => scores[a.key] != null);
+  const allKeys = ["definicjaSukcesu", ...areaOrder];
+  const allScored = allKeys.every(k => scores[k] != null);
+  const anyScored = allKeys.some(k => scores[k] != null);
+  const centerVal = scores.definicjaSukcesu;
+  const isCenterWeakest = weakestKeys.includes("definicjaSukcesu");
+  const centerRadius = 11 + (centerVal!=null ? (Math.max(0,Math.min(30,centerVal))/30)*13 : 0);
   return (
     <div>
       <svg viewBox={"0 0 "+size+" "+size} style={{width:"100%", maxWidth:400, display:"block", margin:"0 auto"}}>
-        {[10,20,30].map(lvl => {
-          const pts = PCT_AREAS.map((a,i) => pointAt(i, lvl).join(",")).join(" ");
-          return <polygon key={lvl} points={pts} fill="none" stroke="#BABDCC" strokeWidth="1"/>;
+        {[1/3, 2/3, 1].map(frac => {
+          const pts = areaOrder.map(k => vertexAt(k, frac).join(",")).join(" ");
+          return <polygon key={frac} points={pts} fill="none" stroke="#BABDCC" strokeWidth="1"/>;
         })}
-        {PCT_AREAS.map((a,i) => {
-          const [x,y] = vertexAt(i);
-          return <line key={a.key} x1={center} y1={center} x2={x} y2={y} stroke="#BABDCC" strokeWidth="1"/>;
+        {areaOrder.map(k => {
+          const [x,y] = vertexAt(k, 1);
+          return <line key={k} x1={center} y1={center} x2={x} y2={y} stroke="#BABDCC" strokeWidth="1"/>;
         })}
         <path d={pathD} fill="#EAF1FE" fillOpacity="0.85" stroke="#006EFA" strokeWidth="2"
           strokeDasharray={allScored ? "none" : "5 4"}/>
-        {PCT_AREAS.map((a,i) => {
+        {areaOrder.map((k,i) => {
           const [x,y] = dataPoints[i];
-          const v = scores[a.key];
-          const isWeakest = weakestKeys.includes(a.key);
+          const v = scores[k];
+          const isWeakest = weakestKeys.includes(k);
           return (
-            <circle key={a.key} cx={x} cy={y} r={isWeakest ? 7 : 4.5}
+            <circle key={k} cx={x} cy={y} r={isWeakest ? 8 : 5}
               fill={v==null ? "#fff" : (isWeakest ? "#D64545" : "#006EFA")}
               stroke={v==null ? "#BABDCC" : "#141E50"} strokeWidth={v==null ? 1 : 1.5}/>
           );
         })}
-        {PCT_AREAS.map((a,i) => {
-          const angle = angleFor(i);
-          const lx = center + labelR*Math.cos(angle), ly = center + labelR*Math.sin(angle);
-          // Każda etykieta obszaru ma dokładnie dwa słowa — łamiemy PO KAŻDYM słowie (nie tylko
-          // przy "/"), żeby wąskie osie lewa/prawa (kąt 0/180) nie wypychały tekstu poza viewBox.
+        {areaOrder.map(k => {
+          const [lx,ly] = vertexAt(k, labelR/radius);
+          const a = areaByKey[k];
           const lines = a.label.replace(" / ", " ").split(" ");
-          const isWeakest = weakestKeys.includes(a.key);
-          const v = scores[a.key];
+          const isWeakest = weakestKeys.includes(k);
+          const v = scores[k];
           return (
-            <text key={a.key} x={lx} y={ly} textAnchor="middle" dominantBaseline="middle"
+            <text key={k} x={lx} y={ly} textAnchor="middle" dominantBaseline="middle"
               fontSize="11" fontWeight={isWeakest ? 700 : 500} fill={isWeakest ? "#D64545" : "#141E50"}>
               {lines.map((line,li) => (
                 <tspan key={li} x={lx} dy={li===0 ? (lines.length>1 ? -6 : 0) : 13}>{line}</tspan>
@@ -2197,6 +1796,18 @@ function PctRadarChart({scores, weakestKeys}){
             </text>
           );
         })}
+        <circle cx={center} cy={center} r={centerRadius}
+          fill={centerVal==null ? "#fff" : (isCenterWeakest ? "#D64545" : "#141E50")}
+          stroke={isCenterWeakest ? "#D64545" : "#141E50"} strokeWidth={isCenterWeakest ? 2.5 : 1.5}/>
+        {centerVal!=null && (
+          <text x={center} y={center} textAnchor="middle" dominantBaseline="middle" fontSize="12" fontWeight="700" fill="#fff">
+            {Math.round(centerVal)}
+          </text>
+        )}
+        <text x={center} y={center+centerRadius+16} textAnchor="middle" fontSize="11"
+          fontWeight={isCenterWeakest ? 700 : 500} fill={isCenterWeakest ? "#D64545" : "#141E50"}>
+          Definicja sukcesu
+        </text>
       </svg>
       {!allScored && (
         <p className="hint" style={{textAlign:"center"}}>
@@ -2207,14 +1818,13 @@ function PctRadarChart({scores, weakestKeys}){
   );
 }
 
-function Diagnoza({state, pctAvg, pctWeakestAreas, pctLatestScores, showPct, setPct, setPctAnswer, addPctCheckpoint, showQuick, quickScoresObj, quickAvg, quickWeakestAreas, setQuickAnswer, hasIncompleteGroups, addGroup, updateGroup, removeGroup, setAdkar, categoryBarrier, adkarRollup, usesOptionalCategory, enableOptionalCategory}){
-  const activeCategories = CATEGORIES.concat(usesOptionalCategory ? [OPTIONAL_CATEGORY] : []);
+function Diagnoza({state, pctAvg, pctWeakestAreas, pctLatestScores, showPct, setPct, setPctAnswer, addPctCheckpoint, addPctAction, updatePctAction, removePctAction, hasIncompleteGroups, addGroup, updateGroup, removeGroup, setAdkar, categoryBarrier, adkarRollup}){
   const missingCategory = state.groups.filter(g => !g.categoryId).length;
   const missingWplyw = state.groups.filter(g => g.categoryId && !(g.wplyw||"").trim()).length;
-  // Numeracja sekcji liczona dynamicznie — pełna ocena (poziom 3) i szybka ocena (poziom 2)
-  // dzielą ten sam numer kroku 1, bo dla danego projektu widoczna jest tylko jedna z nich.
+  // Numeracja sekcji liczona dynamicznie — dla średniej zmiany nie ma sekcji PCT (tylko poziom 3
+  // ją dostaje), więc "Grupy" muszą zostać krokiem 1, nie 2.
   let step = 0;
-  const assessmentStep = (showPct || showQuick) ? ++step : null;
+  const assessmentStep = showPct ? ++step : null;
   const groupsStep = ++step;
   const adkarStep = ++step;
   const skanStep = ++step;
@@ -2229,14 +1839,7 @@ function Diagnoza({state, pctAvg, pctWeakestAreas, pctLatestScores, showPct, set
             obszaru (1–30) liczy się sam z sześciu odpowiedzi.
           </p>
           <p className="hint">{LIKERT_SCALE_LEGEND}</p>
-          <p className="hint">Progi robocze (nie są oficjalnymi progami Prosci): 10–19 = wymaga działania, 20–24 = wymaga uwagi, 25–30 = mocny obszar. Zawsze reaguj na najsłabszy z czterech wyników.</p>
-          <details style={{marginBottom:14}}>
-            <summary style={{cursor:"pointer", fontWeight:600}}>Przykłady działań dla poszczególnych obszarów</summary>
-            <table style={{marginTop:8}}>
-              <thead><tr><th>Obszar</th><th>Przykład wpisu</th></tr></thead>
-              <tbody>{PCT_AREAS.map(a => <tr key={a.key}><th style={{width:200}}>{a.label}</th><td>{a.example}</td></tr>)}</tbody>
-            </table>
-          </details>
+          <p className="hint">W pierwszej kolejności zajmij się obszarem ocenionym najniżej. Obszar z wynikiem poniżej 20 punktów również wymaga uwagi.</p>
           {state.pctHistory.map((p, idx) => {
             const rowScores = pctScores(p);
             const rowWeakest = computeWeakestPctAreas(rowScores);
@@ -2271,10 +1874,22 @@ function Diagnoza({state, pctAvg, pctWeakestAreas, pctLatestScores, showPct, set
                     {rowWeakest.map(a => <div key={a.key} style={{marginTop:4}}>{a.recommendation}</div>)}
                   </div>
                 )}
+                <details style={{marginTop:10}}>
+                  <summary style={{cursor:"pointer", fontWeight:600}}>Przykłady działań dla poszczególnych obszarów</summary>
+                  <table style={{marginTop:8, marginBottom:10}}>
+                    <thead><tr><th>Obszar</th><th>Przykład wpisu</th></tr></thead>
+                    <tbody>{PCT_AREAS.map(a => <tr key={a.key}><th style={{width:200}}>{a.label}</th><td>{a.example}</td></tr>)}</tbody>
+                  </table>
+                </details>
                 <div className="grid cols2" style={{marginTop:10}}>
-                  <Field label="Działania usprawniające do kolejnego przeglądu"
-                    hint="Wpisz działania, które zostaną podjęte przed kolejnym przeglądem w celu poprawy najsłabiej ocenionego obszaru lub ograniczenia zidentyfikowanych ryzyk.">
-                    <input type="text" value={p.decyzja} onChange={e=>setPct(idx,"decyzja",e.target.value)}/>
+                  <Field label="Działania usprawniające do kolejnego przeglądu">
+                    {p.dzialaniaUsprawniajace.map((action, ai) => (
+                      <div key={ai} className="flex-between" style={{marginBottom:6, gap:8}}>
+                        <input type="text" style={{flex:1}} value={action} onChange={e=>updatePctAction(idx, ai, e.target.value)}/>
+                        <button className="small" onClick={()=>removePctAction(idx, ai)}>Usuń</button>
+                      </div>
+                    ))}
+                    <button className="small" onClick={()=>addPctAction(idx)}>+ Dodaj działanie</button>
                   </Field>
                   <Field label="Kolejny przegląd"><input type="date" value={p.kolejnyPrzeglad} onChange={e=>setPct(idx,"kolejnyPrzeglad",e.target.value)}/></Field>
                 </div>
@@ -2282,45 +1897,10 @@ function Diagnoza({state, pctAvg, pctWeakestAreas, pctLatestScores, showPct, set
             );
           })}
           <button className="small" onClick={addPctCheckpoint}>+ Kolejny pomiar</button>
-          <PctRadarChart scores={pctLatestScores} weakestKeys={pctWeakestAreas.map(a=>a.key)}/>
+          <PctTriangle scores={pctLatestScores} weakestKeys={pctWeakestAreas.map(a=>a.key)}/>
           <div className="banner info flex-between" style={{marginTop:14}}>
             <div>Średnia ostatniego pomiaru: <strong>{pctAvg!=null ? pctAvg.toFixed(1) : "–"}</strong>{pctWeakestAreas.length ? (" · Najsłabszy obszar: " + pctWeakestAreas.map(a=>a.label).join(" i ")) : ""}</div>
             <Badge tone={pctTone(pctAvg)}>{PCT_TONE_LABELS[pctTone(pctAvg)]}</Badge>
-          </div>
-        </div>
-      )}
-      {showQuick && (
-        <div className="card">
-          <h2>{assessmentStep}. Szybka ocena gotowości przedsięwzięcia</h2>
-          <p className="hint">
-            Skrócony zestaw pytań (3 na obszar zamiast 6) — pokazuje, czy przedsięwzięcie jest gotowe nie tylko do
-            dostarczenia rezultatów projektu, ale też do ich skutecznego wykorzystania w codziennej pracy.
-          </p>
-          <p className="hint">{LIKERT_SCALE_LEGEND}</p>
-          {PCT_AREAS.map(a => (
-            <div key={a.key} style={{marginBottom:16}}>
-              <div className="flex-between" style={{marginBottom:6}}>
-                <h4 style={{margin:0}}>{a.label}</h4>
-                {quickScoresObj[a.key]!=null && <Badge tone={pctTone(quickScoresObj[a.key])}>{quickScoresObj[a.key]}/30</Badge>}
-              </div>
-              {QUICK_ASSESSMENT_QUESTION_INDEXES[a.key].map((qIdx, i) => (
-                <div key={qIdx} className="flex-between" style={{marginBottom:8}}>
-                  <div style={{maxWidth:520}}>{PCT_QUESTIONS[a.key][qIdx]}</div>
-                  <Likert value={state.quickAssessment[a.key][i]} onChange={v=>setQuickAnswer(a.key, i, v)} labels={LIKERT_SCALE_LABELS}/>
-                </div>
-              ))}
-            </div>
-          ))}
-          <PctRadarChart scores={quickScoresObj} weakestKeys={quickWeakestAreas.map(a=>a.key)}/>
-          {quickWeakestAreas.length > 0 && (
-            <div className="banner warn" style={{marginTop:10}}>
-              <strong>Najsłabszy obszar: {quickWeakestAreas.map(a=>a.label+" ("+a.value+"/30)").join(" i ")}</strong>
-              {quickWeakestAreas.map(a => <div key={a.key} style={{marginTop:4}}>{a.recommendation}</div>)}
-            </div>
-          )}
-          <div className="banner info flex-between" style={{marginTop:14}}>
-            <div>Średnia: <strong>{quickAvg!=null ? quickAvg.toFixed(1) : "–"}</strong>{quickWeakestAreas.length ? (" · Najsłabszy obszar: " + quickWeakestAreas.map(a=>a.label).join(" i ")) : ""}</div>
-            <Badge tone={pctTone(quickAvg)}>{PCT_TONE_LABELS[pctTone(quickAvg)]}</Badge>
           </div>
         </div>
       )}
@@ -2330,22 +1910,22 @@ function Diagnoza({state, pctAvg, pctWeakestAreas, pctLatestScores, showPct, set
           <h2 style={{margin:0}}>{groupsStep}. Grupy objęte zmianą</h2>
           <button className="small" onClick={addGroup}>+ Dodaj grupę</button>
         </div>
-        <p className="hint">Wpisz grupy osób, których charakter lub sposób pracy może ulec zmianie, i przypisz każdą do jednej z kategorii.</p>
+        <p className="hint">Wpisz grupy osób, których charakter lub sposób pracy może ulec zmianie, i przypisz każdą do jednej z ról wobec zmiany.</p>
         <details style={{marginBottom:10}}>
-          <summary style={{cursor:"pointer", fontWeight:600}}>Co kryje się pod poszczególnymi kategoriami?</summary>
+          <summary style={{cursor:"pointer", fontWeight:600}}>Co kryje się pod poszczególnymi rolami wobec zmiany?</summary>
           <table style={{marginTop:8}}>
-            <tbody>{ALL_CATEGORIES.map(c => <tr key={c.id}><th style={{width:280}}>{c.label}</th><td>{c.hint}</td></tr>)}</tbody>
+            <tbody>{CATEGORIES.map(c => <tr key={c.id}><th style={{width:280}}>{c.label}</th><td>{c.hint}</td></tr>)}</tbody>
           </table>
         </details>
         {(missingCategory>0 || missingWplyw>0) && (
           <div className="banner warn">
-            {missingCategory>0 && <div>{missingCategory} grup(y) bez przypisanej kategorii.</div>}
-            {missingWplyw>0 && <div>{missingWplyw} grup(y) z kategorią, ale bez wypełnionego pola „Co zmienia się w ich pracy?”.</div>}
+            {missingCategory>0 && <div>{missingCategory} grup(y) bez przypisanej roli wobec zmiany.</div>}
+            {missingWplyw>0 && <div>{missingWplyw} grup(y) z rolą wobec zmiany, ale bez wypełnionego pola „Co zmienia się w ich pracy?”.</div>}
             Dopóki oba pola nie są uzupełnione, grupa nie trafi do diagnozy ADKAR, a zakładki <strong>Plan działań</strong> i <strong>Pulpit</strong> pozostaną ukryte.
           </div>
         )}
         <table>
-          <thead><tr><th>Grupa</th><th>Co zmienia się w ich pracy?</th><th>Kategoria</th><th></th></tr></thead>
+          <thead><tr><th>Grupa</th><th>Co zmienia się w ich pracy?</th><th>Rola wobec zmiany</th><th></th></tr></thead>
           <tbody>
             {state.groups.map(g => (
               <tr key={g.id}>
@@ -2353,8 +1933,8 @@ function Diagnoza({state, pctAvg, pctWeakestAreas, pctLatestScores, showPct, set
                 <td><input type="text" value={g.wplyw} onChange={e=>updateGroup(g.id,"wplyw",e.target.value)}/></td>
                 <td>
                   <select value={g.categoryId} onChange={e=>updateGroup(g.id,"categoryId",e.target.value)}>
-                    <option value="">— wybierz kategorię —</option>
-                    {activeCategories.map(c => <option key={c.id} value={c.id} title={c.hint}>{c.label}</option>)}
+                    <option value="">— wybierz rolę wobec zmiany —</option>
+                    {CATEGORIES.map(c => <option key={c.id} value={c.id} title={c.hint}>{c.label}</option>)}
                   </select>
                 </td>
                 <td><button className="small" onClick={()=>removeGroup(g.id)}>Usuń</button></td>
@@ -2363,24 +1943,21 @@ function Diagnoza({state, pctAvg, pctWeakestAreas, pctLatestScores, showPct, set
             {state.groups.length===0 && <tr><td colSpan="4" className="muted">Brak grup — kliknij „Dodaj grupę”.</td></tr>}
           </tbody>
         </table>
-        {!usesOptionalCategory && (
-          <button className="small" style={{marginTop:10}} onClick={enableOptionalCategory}>+ Włącz kategorię „Klienci / studenci” (opcjonalnie)</button>
-        )}
       </div>
 
       <div className="card">
-        <h2>{adkarStep}. Ocena ADKAR dla każdej kategorii</h2>
+        <h2>{adkarStep}. Ocena ADKAR dla każdej roli wobec zmiany</h2>
         <p className="hint">
-          ADKAR ocenia, na ile każda kategoria jest gotowa na zmianę: <strong>Awareness</strong> (świadomość
-          potrzeby zmiany), <strong>Desire</strong> (chęć wspierania i uczestnictwa), <strong>Knowledge</strong> (wiedza,
-          jak pracować w nowy sposób), <strong>Ability</strong> (praktyczne umiejętności), <strong>Reinforcement</strong> (trwałe
-          stosowanie). Wynik przekłada się bezpośrednio na Plan działań — tam w pierwszej kolejności zajmujemy się
-          najsłabiej ocenionym obszarem każdej kategorii.
+          ADKAR ocenia, na ile osoby w danej roli wobec zmiany są na nią gotowe — oceniasz wspólnie wszystkie grupy
+          przypisane do tej roli: <strong>Awareness</strong> (świadomość potrzeby zmiany), <strong>Desire</strong> (chęć
+          wspierania i uczestnictwa), <strong>Knowledge</strong> (wiedza, jak pracować w nowy sposób), <strong>Ability</strong> (praktyczne
+          umiejętności), <strong>Reinforcement</strong> (trwałe stosowanie). Wynik przekłada się bezpośrednio na Plan działań —
+          tam w pierwszej kolejności zajmujemy się najsłabiej ocenionym obszarem każdej roli wobec zmiany.
         </p>
-        <p className="hint">Oceń każdą kategorię w skali 1–5. 1–2 oznacza istotną barierę, 3 wymaga uwagi, 4–5 to dobra gotowość.</p>
-        {activeCategories.map(c => {
+        <p className="hint">Oceń każdą rolę wobec zmiany w skali 1–5. 1–2 oznacza istotną barierę, 3 wymaga uwagi, 4–5 to dobra gotowość.</p>
+        {CATEGORIES.map(c => {
           const d = state.adkarByCategory[c.id];
-          const barriers = categoryBarrier(c.id);
+          const barrier = categoryBarrier(c.id);
           const catGroups = state.groups.filter(g=>g.categoryId===c.id).map(g=>g.nazwa).filter(Boolean);
           const body = (
             <React.Fragment>
@@ -2399,12 +1976,20 @@ function Diagnoza({state, pctAvg, pctWeakestAreas, pctLatestScores, showPct, set
                     hint="Opisz, jaki jest docelowy, pożądany stan (nie działanie — to zaplanujesz w Planie działań).">
                     <textarea value={d.wniosek} onChange={e=>setAdkar(c.id,"wniosek",e.target.value)} placeholder="np. Pracownicy wiedzą, jak wykonywać proces w nowym systemie i stosują go w codziennej pracy."/>
                   </Field>
-                  {barriers.length>0 && barriers.map(b => (
+                  {barrier.status === "ready" && (
+                    <div className="hint" style={{marginBottom:6}}><strong>Brak istotnej bariery</strong> — grupa jest gotowa na zmianę.</div>
+                  )}
+                  {barrier.status === "barrier" && barrier.dims.map(b => (
                     <div key={b.id} className="hint" style={{marginBottom:6}}>
                       <strong>Bariera „{b.label}”</strong> — {ADKAR_BARRIER_INTRO[b.id]} {ADKAR_SUGGESTIONS[b.id]}
                       <div>Przykładowe działania: {ADKAR_EXAMPLES[b.id].join(", ")}.</div>
                     </div>
                   ))}
+                  {barrier.status === "barrier" && barrier.extraCount > 0 && (
+                    <div className="hint" style={{marginBottom:6}}>
+                      Pozostałe {barrier.extraCount} {barrier.extraCount===1?"obszar":"obszary"} z tą samą oceną również wymagają uwagi.
+                    </div>
+                  )}
                 </div>
               </div>
             </React.Fragment>
@@ -2421,7 +2006,8 @@ function Diagnoza({state, pctAvg, pctWeakestAreas, pctLatestScores, showPct, set
             <div key={c.id} className="action-row">
               <div className="top">
                 <strong>{c.label}</strong>
-                {barriers.length>0 && <Badge tone="orange">Największa bariera: {barriers.map(b=>b.label).join(" i ")}</Badge>}
+                {barrier.status === "barrier" && <Badge tone="orange">Największa bariera: {barrierExportText(barrier)}</Badge>}
+                {barrier.status === "ready" && <Badge tone="green">Brak istotnej bariery</Badge>}
               </div>
               {body}
             </div>
@@ -2437,7 +2023,7 @@ function Diagnoza({state, pctAvg, pctWeakestAreas, pctLatestScores, showPct, set
             <Bar label={r.label} value={r.avg} max={5}/>
             <div className="hint" style={{margin:"2px 0 0 160px"}}>
               {r.min!=null ? ("min " + r.min + " · ") : ""}
-              {r.atRiskCount>0 ? (r.atRiskCount + " kateg. z oceną ≤2 (" + r.atRisk.join(", ") + ")") : "brak kategorii w ryzyku"}
+              {r.atRiskCount>0 ? (r.atRiskCount + " role z oceną ≤2 (" + r.atRisk.join(", ") + ")") : "brak ról w ryzyku"}
               {" · "}{r.suggestion}
             </div>
           </div>
@@ -2447,39 +2033,44 @@ function Diagnoza({state, pctAvg, pctWeakestAreas, pctLatestScores, showPct, set
   );
 }
 
-function PlanDzialan({actionsByCategory, categoryBarrier, adkarByCategory, groups, addAction, updateAction, removeAction, usesOptionalCategory, milestones, teamMembers}){
-  const activeCategories = CATEGORIES.concat(usesOptionalCategory ? [OPTIONAL_CATEGORY] : []);
+function PlanDzialan({actionsByCategory, categoryBarrier, adkarByCategory, groups, addAction, updateAction, removeAction, milestones}){
+  // Rola bez przypisanej grupy nie ma jeszcze nic do planowania — pokazywanie jej tylko myli
+  // (pusta sekcja z przyciskiem "Dodaj działanie", zgłoszone na zrzucie ekranu).
+  const visibleCategories = CATEGORIES.filter(c => groups.some(g => g.categoryId === c.id));
+  // Lista wyboru "Z jakim etapem..." podpowiada etapy i kamienie milowe z karty, nie zwykłe
+  // działania (te trzecie nie są punktami odniesienia w harmonogramie).
+  const milestoneChoices = milestones.filter(m => m.typ !== "dzialanie");
   return (
     <div className="card">
       <h2>Plan działań</h2>
-      <p className="hint">Dla każdej kategorii wybierz maksymalnie {MAX_ACTIONS_PER_CATEGORY} najważniejsze działania, które w największym stopniu pomogą usunąć zidentyfikowane bariery.</p>
-      {activeCategories.map(c => {
+      <p className="hint">Dla każdej roli wobec zmiany wybierz 3 najważniejsze działania, które w największym stopniu pomogą usunąć zidentyfikowane bariery.</p>
+      {visibleCategories.map(c => {
         const actions = actionsByCategory[c.id] || [];
-        const barriers = categoryBarrier(c.id);
+        const barrier = categoryBarrier(c.id);
         const wniosek = adkarByCategory[c.id]?.wniosek;
         const catGroups = groups.filter(g=>g.categoryId===c.id).map(g=>g.nazwa).filter(Boolean);
-        const atLimit = actions.length >= MAX_ACTIONS_PER_CATEGORY;
+        const overSoftLimit = actions.length > MAX_ACTIONS_PER_CATEGORY;
         return (
           <div key={c.id} style={{marginBottom:22}}>
             <div className="flex-between">
               <div>
                 <strong>{c.label}</strong>
-                {barriers.length>0 && <span className="tag" style={{marginLeft:8}}>bariera: {barriers.map(b=>b.label).join(" i ")}</span>}
+                {barrier.status === "barrier" && <span className="tag" style={{marginLeft:8}}>bariera: {barrierExportText(barrier)}</span>}
               </div>
-              <button className="small" disabled={atLimit} onClick={()=>addAction(c.id)}>+ Dodaj działanie ({actions.length}/{MAX_ACTIONS_PER_CATEGORY})</button>
+              <button className="small" onClick={()=>addAction(c.id)}>+ Dodaj działanie ({actions.length})</button>
             </div>
             {catGroups.length>0 && <div className="pill-list" style={{margin:"6px 0"}}>{catGroups.map(g=><span key={g} className="pill">{g}</span>)}</div>}
             {wniosek && <p className="hint" style={{margin:"4px 0 10px"}}>Co powinno się zmienić dla tej grupy: {wniosek}</p>}
-            {barriers.length>0 && (
+            {barrier.status === "barrier" && (
               <div style={{margin:"4px 0 10px"}}>
-                {barriers.map(b => (
+                {barrier.dims.map(b => (
                   <p key={b.id} className="hint" style={{margin:"2px 0"}}>
                     Przykładowe działania na barierę „{b.label}”: {ADKAR_EXAMPLES[b.id].join(", ")}.
                   </p>
                 ))}
               </div>
             )}
-            {atLimit && <div className="banner warn">Limit {MAX_ACTIONS_PER_CATEGORY} działań na kategorię. Rozważ połączenie działań lub rozbicie na etapy w ramach istniejących wierszy, zamiast dodawać kolejne.</div>}
+            {overSoftLimit && <p className="hint">Więcej niż 3 działania — rozważ, czy da się je połączyć lub rozbić na etapy w ramach istniejących wierszy, zamiast dodawać kolejne.</p>}
 
             {actions.map(a => (
               <div key={a.id} className="action-row">
@@ -2492,14 +2083,14 @@ function PlanDzialan({actionsByCategory, categoryBarrier, adkarByCategory, group
                   <Field label="Jak sprawdzimy gotowość?"><textarea value={a.weryfikacja} onChange={e=>updateAction(a.id,"weryfikacja",e.target.value)} placeholder="Po czym poznamy, że grupa osiągnęła gotowość?"/></Field>
                 </div>
                 <div className="grid cols3">
-                  <Field label="Kamień milowy / etap"
-                    hint="Wskaż etap projektu lub kamień milowy, z którym powiązane jest to działanie (np. rozpoczęcie szkoleń, uruchomienie rozwiązania, pilotaż, przejście na nowy proces, stabilizacja po wdrożeniu).">
+                  <Field label="Z jakim etapem lub kamieniem milowym powiązane jest działanie?">
                     <input type="text" list="milestones-dl" value={a.kamien} onChange={e=>updateAction(a.id,"kamien",e.target.value)}/>
                   </Field>
                   <Field label="Termin"><input type="date" value={a.termin} onChange={e=>updateAction(a.id,"termin",e.target.value)}/></Field>
-                  <Field label="Odpowiedzialny"
-                    hint="Wskaż właściciela działania, który odpowiada za jego realizację, koordynację zaangażowanych osób oraz monitorowanie postępów.">
-                    <input type="text" list="team-dl" value={a.odpowiedzialny} onChange={e=>updateAction(a.id,"odpowiedzialny",e.target.value)}/>
+                  <Field label={<React.Fragment>Odpowiedzialny{" "}
+                    <span title="Wskaż właściciela działania, który odpowiada za jego realizację, koordynację zaangażowanych osób oraz monitorowanie postępów." style={{cursor:"help", color:"var(--muted)"}}>ⓘ</span>
+                  </React.Fragment>}>
+                    <input type="text" value={a.odpowiedzialny} onChange={e=>updateAction(a.id,"odpowiedzialny",e.target.value)}/>
                   </Field>
                 </div>
                 <div className="grid cols2">
@@ -2515,27 +2106,24 @@ function PlanDzialan({actionsByCategory, categoryBarrier, adkarByCategory, group
                     </label>
                   </Field>
                 </div>
-                <p className="hint" style={{margin:"6px 0 0"}}>
-                  Pamiętaj: działania zaplanowane w tym miejscu powinny być dodane do harmonogramu projektu.
-                  Kluczowe działania należy uwzględnić również w planie projektu we FlexiProject.
-                </p>
               </div>
             ))}
-            {actions.length===0 && <p className="muted">Brak działań w tej kategorii.</p>}
+            {actions.length===0 && <p className="muted">Brak działań dla tej roli wobec zmiany.</p>}
           </div>
         );
       })}
+      <div className="banner info">
+        <strong>Pamiętaj:</strong> kluczowe działania powinny zostać uwzględnione w harmonogramie projektu. Jeśli
+        projekt jest prowadzony w FlexiProject, dodaj je również jako zadania w systemie.
+      </div>
       <datalist id="milestones-dl">
-        {milestones.map(m => <option key={m.id} value={m.nazwa}/>)}
-      </datalist>
-      <datalist id="team-dl">
-        {teamMembers.map(t => <option key={t.id} value={t.imie}/>)}
+        {milestoneChoices.map(m => <option key={m.id} value={m.nazwa}/>)}
       </datalist>
     </div>
   );
 }
 
-function Pulpit({project, level, surveyTotal, readinessAvg, readinessWeakestAreas, readinessLabel, statusCounts, signals, goTo}){
+function Pulpit({project, level, surveyTotal, pctAvg, pctWeakestAreas, statusCounts, signals, goTo}){
   const wipOver = statusCounts["W realizacji"] > MAX_WIP_ACTIONS;
   return (
     <React.Fragment>
@@ -2546,8 +2134,12 @@ function Pulpit({project, level, surveyTotal, readinessAvg, readinessWeakestArea
           <div><div className="muted">Sponsor</div><div>{project.sponsor || "–"}</div></div>
           <div><div className="muted">Typ projektu</div><div>{project.typProjektu || "–"}</div></div>
           <div><div className="muted">Skala zmiany</div><div><Badge tone={level.color}>{level.complete ? (surveyTotal + " pkt — poziom " + level.poziom) : "ankieta nieukończona"}</Badge></div></div>
-          <div><div className="muted">{readinessLabel} — średnia</div><div><Badge tone={pctTone(readinessAvg)}>{readinessAvg!=null?readinessAvg.toFixed(1):"brak danych"}</Badge></div></div>
-          <div><div className="muted">{readinessLabel} — najsłabszy obszar</div><div>{readinessWeakestAreas.length ? readinessWeakestAreas.map(a=>a.label).join(" i ") : "–"}</div></div>
+          {level.poziom === 3 && (
+            <React.Fragment>
+              <div><div className="muted">PCT — średnia</div><div><Badge tone={pctTone(pctAvg)}>{pctAvg!=null?pctAvg.toFixed(1):"brak danych"}</Badge></div></div>
+              <div><div className="muted">PCT — najsłabszy obszar</div><div>{pctWeakestAreas.length ? pctWeakestAreas.map(a=>a.label).join(" i ") : "–"}</div></div>
+            </React.Fragment>
+          )}
         </div>
       </div>
 
@@ -2595,18 +2187,18 @@ function Przewodnik(){
       </p>
       <ul>
         <li><strong>Poziom 1 (mała zmiana):</strong> zakładka „Checklisty” — krótkie pytania o sponsora. Grupy objęte zmianą wypełnij bezpośrednio w karcie projektu.</li>
-        <li><strong>Poziom 2 (średnia zmiana):</strong> „Checklisty” + „Diagnoza” (szybka ocena gotowości, grupy i ADKAR) + „Plan działań” + „Pulpit”. Grupy wypełnij tutaj, w Diagnozie — nie duplikuj tego w karcie.</li>
+        <li><strong>Poziom 2 (średnia zmiana):</strong> „Checklisty” + „Diagnoza” (grupy i ADKAR, bez PCT) + „Plan działań” + „Pulpit”. Grupy wypełnij tutaj, w Diagnozie — nie duplikuj tego w karcie.</li>
         <li><strong>Poziom 3 (duża zmiana):</strong> „Diagnoza” (pełne PCT + ADKAR), „Plan działań” i „Pulpit”.</li>
       </ul>
       <p className="hint">
-        „Plan działań” i „Pulpit” odblokowują się dopiero, gdy każda dodana grupa ma przypisaną kategorię
+        „Plan działań” i „Pulpit” odblokowują się dopiero, gdy każda dodana grupa ma przypisaną rolę wobec zmiany
         i wypełnione pole „Co zmienia się w ich pracy?” — dopóki tak nie jest, te zakładki są ukryte.
       </p>
       <p className="hint">Jeśli w trakcie pracy okaże się, że zmiana jest inna niż na starcie, wróć do „Ankiety” i zmień odpowiedzi — ścieżka przełączy się automatycznie.</p>
       <h3>Praca w Diagnozie i Planie działań</h3>
       <ol>
-        <li><strong>Diagnoza:</strong> uzupełnij ocenę gotowości (pełny PCT dla dużej zmiany, szybka ocena dla średniej), przypisz grupy do kategorii i wykonaj oceny ADKAR.</li>
-        <li><strong>Plan:</strong> wpisz działania (max {MAX_ACTIONS_PER_CATEGORY}/kategorię), sposób sprawdzenia gotowości i zaznacz, czy działanie trafiło do harmonogramu projektu.</li>
+        <li><strong>Diagnoza:</strong> (dla dużej zmiany) uzupełnij PCT, przypisz grupy do ról wobec zmiany i wykonaj oceny ADKAR.</li>
+        <li><strong>Plan:</strong> wpisz działania (celuj w {MAX_ACTIONS_PER_CATEGORY} na rolę wobec zmiany), sposób sprawdzenia gotowości i zaznacz, czy działanie trafiło do harmonogramu projektu.</li>
         <li><strong>Pulpit:</strong> podczas przeglądu aktualizuj statusy działań i reaguj na blokady.</li>
       </ol>
 
@@ -2622,7 +2214,6 @@ function Przewodnik(){
       <h3>Co jeszcze jest w toku (otwarte tematy z zespołu)</h3>
       <ul>
         <li>Checklisty dla poziomu 1 i 2 zmiany — w przygotowaniu (Martyna); obecna wersja w zakładce „Checklisty” to zaślepka.</li>
-        <li>Kategoria „Klienci / studenci” — opcjonalna, do przetestowania na żywym projekcie.</li>
         <li>Nazewnictwo „menedżerowie liniowi” — do ostatecznego uzgodnienia z HR.</li>
       </ul>
     </div>

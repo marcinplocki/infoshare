@@ -6,36 +6,35 @@ bez serwera, wystarczy otworzyć `plan-zarzadzania-zmiana.html` w przeglądarce.
 
 ## Zawartość narzędzia
 
-- **Dane projektu** — metryka projektu/programu.
+- **Dane projektu** — metryczka projektu/programu, główne korzyści biznesowe
+  i etapy/kamienie milowe zaciągnięte z karty projektu (.docx) automatycznie
+  po wczytaniu pliku.
 - **Ankieta — skala zmiany** — 3-częściowa ankieta (max 65 pkt), klasyfikuje
   zmianę do poziomu 1 (mała), 2 (średnia) lub 3 (duża).
 - **Checklisty (poziom 1–2)** — zaślepka dla uproszczonej ścieżki; docelową
   treść przygotowuje Martyna.
-- **Diagnoza** — ocena gotowości całego przedsięwzięcia (pełny PCT jako
-  zestaw pytań dla poziomu 3, skrócona „Szybka ocena gotowości” dla
-  poziomu 2, obie z wizualizacją na wykresie radarowym) oraz ocena ADKAR
-  dla 4 stałych kategorii interesariuszy (+ opcjonalna 5.
-  „Klienci/studenci”), z automatycznym „szybkim skanem”. Dostępna dla
-  poziomu 2 i 3.
-- **Plan działań** — zagregowany na poziomie kategorii, limit **3 działania
-  na kategorię**, z przykładowymi działaniami podpowiadanymi automatycznie
-  po zidentyfikowaniu bariery ADKAR.
+- **Diagnoza** — pełny PCT jako zestaw pytań z automatycznym wyliczaniem
+  wyniku (poziom 3, z wizualizacją na klasycznym trójkącie Prosci) oraz
+  ocena ADKAR dla 5 stałych ról wobec zmiany (w tym „Klienci — zewnętrzni
+  odbiorcy zmiany”), z automatycznym „szybkim skanem”. Dostępna dla
+  poziomu 2 i 3 (dla poziomu 2 bez sekcji PCT).
+- **Plan działań** — zagregowany na poziomie roli wobec zmiany, z
+  przykładowymi działaniami podpowiadanymi automatycznie po
+  zidentyfikowaniu bariery ADKAR.
 - **Pulpit** — podsumowanie zarządcze: statusy działań, limit WIP, sygnały do
   decyzji.
 - **Przewodnik** — jak pracować z PZZ.
 
 Zapis wersji działa lokalnie w przeglądarce (localStorage). Jedyny format
-pliku do zapisu/odczytu poza przeglądarką to Excel (eksport przyciskiem
-„Eksport Excel”, w pełni stylowany paletą marki Grupa Merito, wczytywany
-z powrotem przyciskiem „Wczytaj Excel”).
+pliku do zapisu/odczytu poza przeglądarką to Excel (przycisk „Zapisz plik”,
+w pełni stylowany paletą marki Grupa Merito, wczytywany z powrotem
+przyciskiem „Otwórz plik”).
 
 ## Stan prac / otwarte tematy
 
 Zgodnie z notatką ze spotkania zespołu (Joanna, Marcin, Martyna, Izabela):
 
 - [ ] Checklisty dla poziomu 1 i 2 — docelowa treść (Martyna).
-- [ ] Test czterech kategorii interesariuszy na żywym projekcie, w tym czy
-      klienci/studenci potrzebują osobnej kategorii (Joanna, Marcin, Martyna).
 - [ ] Uzgodnienie z HR jednego określenia „menedżerowie liniowi” (Joanna).
 - [ ] Weryfikacja merytoryczna finalnej wersji narzędzia (Izabela).
 
