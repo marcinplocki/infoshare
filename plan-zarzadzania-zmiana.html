@@ -137,15 +137,26 @@ const ADKAR_SUGGESTIONS = {
   ability: "Dodaj ćwiczenia, testy i wsparcie w rzeczywistej pracy.",
   reinforcement: "Ustal właścicieli, pomiary, przeglądy i sposób reagowania na powrót do starych praktyk.",
 };
-// Gotowe przykłady działań na barierę — do wglądu przy diagnozie i przy planowaniu działań,
-// żeby nie zaczynać od pustej kartki (uwagi zespołu: "przy zidentyfikowaniu bariery automatycznie
-// warto wyświetlać przykłady/sugestię działań").
+// Wyjaśnienie bariery jako opis zjawiska (nie warunek do spełnienia) — zdanie już zawiera nazwę
+// bariery, więc w UI stoi samodzielnie, bez osobnego pogrubionego nagłówka z tą samą nazwą.
 const ADKAR_BARRIER_INTRO = {
-  awareness: "Jeżeli ludzie nie rozumieją, dlaczego coś robimy.",
-  desire: "Jeżeli ludzie wiedzą „dlaczego”, ale nie chcą.",
-  knowledge: "Jeżeli ludzie chcą, ale nie wiedzą jak.",
-  ability: "Jeśli ludzie mają wiedzę, ale nie potrafią jej zastosować w praktyce.",
-  reinforcement: "Jeśli ludzie już pracują nowym sposobem, ale mogą wrócić do starych nawyków.",
+  awareness: "Bariera Awareness występuje, gdy ludzie nie rozumieją, dlaczego zmiana jest potrzebna.",
+  desire: "Bariera Desire występuje, gdy ludzie wiedzą, dlaczego zmiana jest potrzebna, ale jej nie chcą.",
+  knowledge: "Bariera Knowledge występuje, gdy ludzie chcą zmiany, ale nie wiedzą, jak ją wprowadzić.",
+  ability: "Bariera Ability występuje, gdy ludzie mają wiedzę, ale nie potrafią zastosować jej w praktyce.",
+  reinforcement: "Bariera Reinforcement występuje, gdy ludzie pracują już w nowy sposób, ale mogą wrócić do starych nawyków.",
+};
+// Pełna lista przykładów — do wglądu przy planowaniu działań (nie w ADKAR, tam wystarczy sama
+// bariera i jej wyjaśnienie). ADKAR_EXAMPLES_SHORT to 5 konkretnych, gotowych do wpisania do
+// harmonogramu pozycji pokazywanych domyślnie; ADKAR_EXAMPLES (ta sama treść co wcześniej) to
+// pełna, dłuższa lista pod „Potrzebujesz więcej pomysłów?” — docelową, obszerniejszą listę
+// przygotowują Martyna i Izabela.
+const ADKAR_EXAMPLES_SHORT = {
+  awareness: ["spotkanie informacyjne o powodach zmiany", "mailing do pracowników o zmianie", "krótka prezentacja na spotkaniu zespołu", "komunikat sponsora do objętych zmianą", "sesja pytań i odpowiedzi z zespołem projektowym"],
+  desire: ["warsztat dla kierowników o korzyściach zmiany", "indywidualna rozmowa z osobą zgłaszającą opór", "wystąpienie ambasadora zmiany", "prezentacja korzyści dopasowana do grupy", "konsultacje robocze z przedstawicielami grupy"],
+  knowledge: ["instrukcja krok po kroku dla nowego procesu", "krótki film instruktażowy", "szkolenie dla użytkowników", "FAQ z najczęstszymi pytaniami", "materiał wprowadzający dla menedżerów"],
+  ability: ["warsztat praktyczny na rzeczywistych przykładach", "dyżur eksperta w pierwszym tygodniu", "sesja mentoringowa dla nowych użytkowników", "test na środowisku szkoleniowym przed startem", "wsparcie on-the-job w pierwszych dniach"],
+  reinforcement: ["przegląd wskaźników wykorzystania po miesiącu", "przypomnienie mailowe o nowych zasadach", "aktualizacja procedury o nowe zasady", "krótkie podsumowanie efektów dla zespołu", "wyróżnienie osoby dobrze stosującej nowy sposób pracy"],
 };
 const ADKAR_EXAMPLES = {
   awareness: ["komunikacja powodów zmiany", "prezentacja korzyści", "spotkania informacyjne dla pracowników", "udział sponsora w rozmowach z kluczowymi grupami"],
@@ -378,7 +389,7 @@ function emptySurveyAnswers(){
 function emptyAdkarByCategory(){
   const o = {};
   CATEGORIES.forEach(c => {
-    o[c.id] = {awareness:null, desire:null, knowledge:null, ability:null, reinforcement:null, wniosek:""};
+    o[c.id] = {awareness:null, desire:null, knowledge:null, ability:null, reinforcement:null};
   });
   return o;
 }
@@ -1064,12 +1075,12 @@ function App(){
     xlsLabelRow(wsDane, "Nazwa projektu/programu", state.project.nazwa);
     xlsLabelRow(wsDane, "Sponsor", state.project.sponsor);
     xlsLabelRow(wsDane, "PM", state.project.pm);
-    xlsLabelRow(wsDane, "CM (jeśli powołany)", state.project.cm);
+    xlsLabelRow(wsDane, "Koordynator planu zarządzania zmianą (jeśli powołany)", state.project.cm);
     xlsLabelRow(wsDane, "Typ projektu", state.project.typProjektu);
     xlsLabelRow(wsDane, "Filie objęte projektem", state.project.filie);
     xlsLabelRow(wsDane, "Okres realizacji projektu", state.project.okresRealizacji);
     xlsLabelRow(wsDane, "Termin przygotowania PZZ", state.project.terminPrzygotowania);
-    xlsLabelRow(wsDane, "Częstotliwość przeglądu", state.project.czestotliwosc);
+    xlsLabelRow(wsDane, "Częstotliwość aktualizacji", state.project.czestotliwosc);
     wsDane.addRow([]);
     xlsLabelRow(wsDane, "Liczba punktów w ankiecie skali zmiany (patrz też arkusz „Ankieta”)", surveyTotal, true);
     xlsLabelRow(wsDane, "Poziom zmiany", level.complete ? (level.poziom + " — " + level.label) : "Ankieta nieukończona", true);
@@ -1125,11 +1136,11 @@ function App(){
     state.groups.forEach(g => xlsDataRow(wsDiag, [g.nazwa, g.wplyw, CATEGORIES.find(c=>c.id===g.categoryId)?.label || ""]));
     wsDiag.addRow([]);
     xlsSectionRow(wsDiag, ["ADKAR PER ROLA WOBEC ZMIANY (1-5)"]);
-    xlsHeaderRow(wsDiag, ["Rola wobec zmiany","Awareness","Desire","Knowledge","Ability","Reinforcement","Największa bariera","Co powinno się zmienić dla tej grupy?"]);
+    xlsHeaderRow(wsDiag, ["Rola wobec zmiany","Awareness","Desire","Knowledge","Ability","Reinforcement","Największa bariera"]);
     CATEGORIES.forEach(c => {
       const d = state.adkarByCategory[c.id] || {};
       const b = categoryBarrier(c.id);
-      xlsDataRow(wsDiag, [c.label, d.awareness, d.desire, d.knowledge, d.ability, d.reinforcement, barrierExportText(b), d.wniosek || ""]);
+      xlsDataRow(wsDiag, [c.label, d.awareness, d.desire, d.knowledge, d.ability, d.reinforcement, barrierExportText(b)]);
     });
     wsDiag.addRow([]);
     xlsSectionRow(wsDiag, ["ADKAR — SZYBKI SKAN"]);
@@ -1137,11 +1148,11 @@ function App(){
     adkarRollup.forEach(r => xlsDataRow(wsDiag, [r.label, r.avg!=null?r.avg.toFixed(2):"", r.min, r.atRisk.join("; "), r.suggestion], [2]));
 
     const wsPlan = wb.addWorksheet("Plan działań");
-    wsPlan.columns = [{width:40},{width:45},{width:30},{width:14},{width:22},{width:40},{width:20},{width:16}];
-    xlsHeaderRow(wsPlan, ["Rola wobec zmiany","Działanie","Kamień milowy/etap","Termin","Odpowiedzialny","Jak sprawdzimy gotowość","Dodano do harmonogramu projektu","Status"]);
+    wsPlan.columns = [{width:40},{width:45},{width:30},{width:14},{width:22},{width:20},{width:16}];
+    xlsHeaderRow(wsPlan, ["Rola wobec zmiany","Działanie","Kamień milowy/etap","Termin","Odpowiedzialny","Dodano do harmonogramu projektu","Status"]);
     state.actions.forEach(a => xlsDataRow(wsPlan, [
       CATEGORIES.find(c=>c.id===a.categoryId)?.label || "",
-      a.dzialanie, a.kamien, a.termin, a.odpowiedzialny, a.weryfikacja, a.dodanoDoHarmonogramu ? "TAK" : "NIE", a.status,
+      a.dzialanie, a.kamien, a.termin, a.odpowiedzialny, a.dodanoDoHarmonogramu ? "TAK" : "NIE", a.status,
     ]));
 
     const wsPulpit = wb.addWorksheet("Pulpit");
@@ -1192,7 +1203,9 @@ function App(){
 
         const project = {
           nazwa: val(dane,"Nazwa projektu"), sponsor: val(dane,"Sponsor"), pm: val(dane,"PM"),
-          cm: val(dane,"CM"), typProjektu: val(dane,"Typ projektu"), filie: val(dane,"Filie objęte"),
+          // v2.0 zmienił etykietę "CM" na "Koordynator..." — starsze pliki nadal mają starą etykietę.
+          cm: val(dane,"Koordynator planu") || val(dane,"CM"),
+          typProjektu: val(dane,"Typ projektu"), filie: val(dane,"Filie objęte"),
           okresRealizacji: val(dane,"Okres realizacji"),
           terminPrzygotowania: val(dane,"Termin przygotowania"), czestotliwosc: val(dane,"Częstotliwość"),
         };
@@ -1265,21 +1278,27 @@ function App(){
             if (!cat) continue;
             adkarByCategory[cat.id] = {
               awareness: r[1] ?? null, desire: r[2] ?? null, knowledge: r[3] ?? null,
-              ability: r[4] ?? null, reinforcement: r[5] ?? null, wniosek: r[7] || "",
+              ability: r[4] ?? null, reinforcement: r[5] ?? null,
             };
           }
         }
 
         const actions = [];
         if (plan){
+          // v2.0 usunął kolumnę "Jak sprawdzimy gotowość" (środek wiersza) — starsze pliki nadal ją
+          // mają, więc kolumny "Dodano do harmonogramu"/"Status" siedzą tam o jedną pozycję dalej.
+          // Rozpoznajemy układ po treści nagłówka, nie tylko po liczbie kolumn.
+          const planHasWeryfikacja = plan[0] && plan[0].some(c => (c||"").toString().trim() === "Jak sprawdzimy gotowość");
+          const dodanoIdx = planHasWeryfikacja ? 6 : 5;
+          const statusIdx = planHasWeryfikacja ? 7 : 6;
           for (let i = 1; i < plan.length; i++){
             const r = plan[i];
             if (!label(r) && !r[1]) continue;
             const cat = findCategoryByLabel(label(r));
             actions.push({
               id:cryptoId(), categoryId: cat ? cat.id : "", dzialanie:r[1]||"", kamien:r[2]||"", termin:r[3]||"",
-              odpowiedzialny:r[4]||"", weryfikacja:r[5]||"", dodanoDoHarmonogramu: (r[6]||"").toString().trim().toUpperCase()==="TAK",
-              status: STATUS_OPTIONS.includes(r[7]) ? r[7] : "Do zaplanowania",
+              odpowiedzialny:r[4]||"", dodanoDoHarmonogramu: (r[dodanoIdx]||"").toString().trim().toUpperCase()==="TAK",
+              status: STATUS_OPTIONS.includes(r[statusIdx]) ? r[statusIdx] : "Do zaplanowania",
             });
           }
         }
@@ -1370,7 +1389,7 @@ function App(){
   function addAction(categoryId){
     setState(s => ({...s, actions: [...s.actions, {
       id:cryptoId(), categoryId, dzialanie:"", kamien:"", termin:"", odpowiedzialny:"",
-      weryfikacja:"", dodanoDoHarmonogramu:false, status:"Do zaplanowania",
+      dodanoDoHarmonogramu:false, status:"Do zaplanowania",
     }]}));
   }
   function updateAction(id, key, value){
@@ -1478,7 +1497,7 @@ function App(){
         />}
         {tab==="plan" && canSeePlanPulpit && <PlanDzialan
           actionsByCategory={actionsByCategory} categoryBarrier={categoryBarrier}
-          adkarByCategory={state.adkarByCategory} groups={state.groups}
+          groups={state.groups}
           addAction={addAction} updateAction={updateAction} removeAction={removeAction}
           milestones={state.milestones}
         />}
@@ -1515,7 +1534,7 @@ function App(){
 
       {toast && <div style={{position:"fixed", bottom:16, right:16, maxWidth:360, background:"var(--ink)", color:"#fff", padding:"10px 16px", borderRadius:8, fontSize:13}}>{toast}</div>}
 
-      <footer className="app">Plan Zarządzania Zmianą · Grupa Merito · wersja robocza · v1.9.1</footer>
+      <footer className="app">Plan Zarządzania Zmianą · Grupa Merito · wersja robocza · v2.0</footer>
     </React.Fragment>
   );
 }
@@ -1533,13 +1552,20 @@ function DaneProjektu({project, setField, kartaInputRef, onKartaFile, kartaImpor
       <div className="card">
         <h2>Jak zacząć</h2>
         <ol>
-          <li>Wczytaj kartę projektu (.docx) poniżej — bez tabelki „Grupy objęte zmianą”, tę wypełnisz w kroku 3.</li>
-          <li>Przejdź do zakładki „Ankieta — skala zmiany” i odpowiedz na wszystkie pytania — to ustali poziom zmiany.</li>
           <li>
-            Dla <strong>małej zmiany</strong> wypełnij tabelkę grup bezpośrednio w karcie projektu — w tym narzędziu nic
-            więcej nie trzeba robić. Dla <strong>średniej i dużej zmiany</strong> wypełnij grupy i resztę diagnozy tutaj,
-            w zakładce „Diagnoza” — to narzędzie eksportuje wynik jako załącznik do karty. Nie wypełniaj tabelki grup
-            w obu miejscach naraz.
+            Wczytaj kartę projektu (.docx) poniżej — metryczka, główne korzyści, etapy/kamienie milowe i grupy objęte
+            zmianą zaciągną się automatycznie. Grupy uzupełniasz od razu w karcie projektu, nie tutaj i nie później —
+            tabelkę w Diagnozie użyjesz tylko do weryfikacji i uzupełnienia tego, co przyszło z karty.
+          </li>
+          <li>
+            Ankietę skali zmiany wypełniasz w trakcie uzupełniania karty, jako jeden z jej kroków — w zakładce
+            „Ankieta — skala zmiany” odpowiedz na wszystkie pytania, to ustali poziom zmiany i pokaże dalszą ścieżkę.
+          </li>
+          <li>Plan zarządzania zmianą może powstać później — nie musi być gotowy razem z kartą. Przy większych projektach powstaje nawet kilka miesięcy po jej przyjęciu.</li>
+          <li>
+            Praca nie zapisuje się sama — zamknięcie karty przeglądarki bez eksportu oznacza jej utratę. Przerywając
+            pracę, kliknij „Zapisz plik”; wracając, wczytaj go przyciskiem „Otwórz plik”. Tak samo rób przy kolejnej
+            aktualizacji planu — importuj poprzedni plik i pracuj na nim dalej, zamiast zaczynać od nowa.
           </li>
         </ol>
       </div>
@@ -1581,15 +1607,17 @@ function DaneProjektu({project, setField, kartaInputRef, onKartaFile, kartaImpor
           <Field label="Typ projektu"><input type="text" value={project.typProjektu} onChange={e=>setField("typProjektu", e.target.value)} placeholder="np. program, projekt, pilotaż"/></Field>
           <Field label="Sponsor"><input type="text" value={project.sponsor} onChange={e=>setField("sponsor", e.target.value)} placeholder="jeśli więcej niż jedna osoba, oddziel średnikiem"/></Field>
           <Field label="PM / Lider projektu"><input type="text" value={project.pm} onChange={e=>setField("pm", e.target.value)} placeholder="jeśli więcej niż jedna osoba, oddziel średnikiem"/></Field>
-          <Field label="CM (Change Manager, jeśli powołany)"><input type="text" value={project.cm} onChange={e=>setField("cm", e.target.value)}/></Field>
+          <Field label="Koordynator planu zarządzania zmianą (jeśli powołany)" hint="Osoba odpowiedzialna za pilnowanie zadań wynikających z planu zarządzania zmianą.">
+            <input type="text" value={project.cm} onChange={e=>setField("cm", e.target.value)}/>
+          </Field>
           <Field label="Filie/podmioty objęte projektem"><input type="text" value={project.filie} onChange={e=>setField("filie", e.target.value)}/></Field>
           <Field label="Okres realizacji projektu"><input type="text" value={project.okresRealizacji} onChange={e=>setField("okresRealizacji", e.target.value)} placeholder="np. 02.02.2026 – 31.01.2027"/></Field>
-          <Field label="Termin przygotowania PZZ"><input type="date" value={project.terminPrzygotowania} onChange={e=>setField("terminPrzygotowania", e.target.value)}/></Field>
-          <Field label="Częstotliwość przeglądu PZZ" hint="Częstotliwość do uzgodnienia z PMO.">
+          <Field label="Termin przygotowania PZZ (jeśli dotyczy)"><input type="date" value={project.terminPrzygotowania} onChange={e=>setField("terminPrzygotowania", e.target.value)}/></Field>
+          <Field label="Częstotliwość aktualizacji PZZ" hint="Zależy od specyfiki projektu — ustal ją w zespole projektowym.">
             <input type="text" value={project.czestotliwosc} onChange={e=>setField("czestotliwosc", e.target.value)} placeholder="np. co miesiąc"/>
           </Field>
         </div>
-        <p className="hint" style={{marginTop:10}}>Karta projektu nie zawiera Change Managera ani rytmu przeglądu PZZ — te dwa pola zawsze trzeba wpisać ręcznie.</p>
+        <p className="hint" style={{marginTop:10}}>Karta projektu nie zawiera koordynatora planu ani częstotliwości jego aktualizacji — te dwa pola zawsze trzeba wpisać ręcznie.</p>
       </div>
 
       {benefits.length > 0 && (
@@ -1821,6 +1849,10 @@ function PctTriangle({scores, weakestKeys}){
 function Diagnoza({state, pctAvg, pctWeakestAreas, pctLatestScores, showPct, setPct, setPctAnswer, addPctCheckpoint, addPctAction, updatePctAction, removePctAction, hasIncompleteGroups, addGroup, updateGroup, removeGroup, setAdkar, categoryBarrier, adkarRollup}){
   const missingCategory = state.groups.filter(g => !g.categoryId).length;
   const missingWplyw = state.groups.filter(g => g.categoryId && !(g.wplyw||"").trim()).length;
+  const rolesWithoutGroups = CATEGORIES.some(c => !state.groups.some(g => g.categoryId === c.id));
+  // Rola bez przypisanej grupy nie ma jeszcze nic do oceniania w ADKAR — ten sam filtr co w Planie
+  // działań (użytkownik widział pustą, zwiniętą rolę i myślał, że musi ją wypełnić).
+  const adkarVisibleCategories = CATEGORIES.filter(c => state.groups.some(g => g.categoryId === c.id));
   // Numeracja sekcji liczona dynamicznie — dla średniej zmiany nie ma sekcji PCT (tylko poziom 3
   // ją dostaje), więc "Grupy" muszą zostać krokiem 1, nie 2.
   let step = 0;
@@ -1881,7 +1913,8 @@ function Diagnoza({state, pctAvg, pctWeakestAreas, pctLatestScores, showPct, set
                     <tbody>{PCT_AREAS.map(a => <tr key={a.key}><th style={{width:200}}>{a.label}</th><td>{a.example}</td></tr>)}</tbody>
                   </table>
                 </details>
-                <div className="grid cols2" style={{marginTop:10}}>
+                <p className="hint" style={{marginTop:12, fontWeight:600}}>Na podstawie tej diagnozy zaplanuj działania usprawniające dla najsłabszego obszaru.</p>
+                <div className="grid cols2" style={{marginTop:4}}>
                   <Field label="Działania usprawniające do kolejnego przeglądu">
                     {p.dzialaniaUsprawniajace.map((action, ai) => (
                       <div key={ai} className="flex-between" style={{marginBottom:6, gap:8}}>
@@ -1910,7 +1943,10 @@ function Diagnoza({state, pctAvg, pctWeakestAreas, pctLatestScores, showPct, set
           <h2 style={{margin:0}}>{groupsStep}. Grupy objęte zmianą</h2>
           <button className="small" onClick={addGroup}>+ Dodaj grupę</button>
         </div>
-        <p className="hint">Wpisz grupy osób, których charakter lub sposób pracy może ulec zmianie, i przypisz każdą do jednej z ról wobec zmiany.</p>
+        <p className="hint">
+          Grupy zaciągnęły się z karty projektu. Od jej przyjęcia mógł minąć jakiś czas — sprawdź, czy to nadal
+          wszystkie grupy, czy nie doszły nowe i czy opis zmiany w ich pracy jest aktualny.
+        </p>
         <details style={{marginBottom:10}}>
           <summary style={{cursor:"pointer", fontWeight:600}}>Co kryje się pod poszczególnymi rolami wobec zmiany?</summary>
           <table style={{marginTop:8}}>
@@ -1930,7 +1966,7 @@ function Diagnoza({state, pctAvg, pctWeakestAreas, pctLatestScores, showPct, set
             {state.groups.map(g => (
               <tr key={g.id}>
                 <td><input type="text" value={g.nazwa} onChange={e=>updateGroup(g.id,"nazwa",e.target.value)}/></td>
-                <td><input type="text" value={g.wplyw} onChange={e=>updateGroup(g.id,"wplyw",e.target.value)}/></td>
+                <td><textarea style={{minHeight:38}} value={g.wplyw} onChange={e=>updateGroup(g.id,"wplyw",e.target.value)}/></td>
                 <td>
                   <select value={g.categoryId} onChange={e=>updateGroup(g.id,"categoryId",e.target.value)}>
                     <option value="">— wybierz rolę wobec zmiany —</option>
@@ -1943,6 +1979,13 @@ function Diagnoza({state, pctAvg, pctWeakestAreas, pctLatestScores, showPct, set
             {state.groups.length===0 && <tr><td colSpan="4" className="muted">Brak grup — kliknij „Dodaj grupę”.</td></tr>}
           </tbody>
         </table>
+        {state.groups.length>0 && rolesWithoutGroups && (
+          <div className="banner info" style={{marginTop:10}}>
+            Nie każda rola wobec zmiany ma przypisane grupy. Zastanów się, czy to świadoma decyzja — pominięcie
+            którejś grupy może utrudnić przyjęcie zmiany w organizacji. Jeśli uznasz, że kogoś brakuje, wróć do
+            tabeli grup i go dodaj.
+          </div>
+        )}
       </div>
 
       <div className="card">
@@ -1955,12 +1998,17 @@ function Diagnoza({state, pctAvg, pctWeakestAreas, pctLatestScores, showPct, set
           tam w pierwszej kolejności zajmujemy się najsłabiej ocenionym obszarem każdej roli wobec zmiany.
         </p>
         <p className="hint">Oceń każdą rolę wobec zmiany w skali 1–5. 1–2 oznacza istotną barierę, 3 wymaga uwagi, 4–5 to dobra gotowość.</p>
-        {CATEGORIES.map(c => {
+        {adkarVisibleCategories.map(c => {
           const d = state.adkarByCategory[c.id];
           const barrier = categoryBarrier(c.id);
           const catGroups = state.groups.filter(g=>g.categoryId===c.id).map(g=>g.nazwa).filter(Boolean);
-          const body = (
-            <React.Fragment>
+          return (
+            <div key={c.id} className="action-row">
+              <div className="top">
+                <strong>{c.label}</strong>
+                {barrier.status === "barrier" && <Badge tone="orange">Największa bariera: {barrierExportText(barrier)}</Badge>}
+                {barrier.status === "ready" && <Badge tone="green">Brak istotnej bariery</Badge>}
+              </div>
               {catGroups.length>0 && <div className="pill-list" style={{marginBottom:10}}>{catGroups.map(g=><span key={g} className="pill">{g}</span>)}</div>}
               <div className="grid cols2">
                 <div>
@@ -1972,18 +2020,11 @@ function Diagnoza({state, pctAvg, pctWeakestAreas, pctLatestScores, showPct, set
                   ))}
                 </div>
                 <div>
-                  <Field label="Co powinno się zmienić dla tej grupy?"
-                    hint="Opisz, jaki jest docelowy, pożądany stan (nie działanie — to zaplanujesz w Planie działań).">
-                    <textarea value={d.wniosek} onChange={e=>setAdkar(c.id,"wniosek",e.target.value)} placeholder="np. Pracownicy wiedzą, jak wykonywać proces w nowym systemie i stosują go w codziennej pracy."/>
-                  </Field>
                   {barrier.status === "ready" && (
                     <div className="hint" style={{marginBottom:6}}><strong>Brak istotnej bariery</strong> — grupa jest gotowa na zmianę.</div>
                   )}
                   {barrier.status === "barrier" && barrier.dims.map(b => (
-                    <div key={b.id} className="hint" style={{marginBottom:6}}>
-                      <strong>Bariera „{b.label}”</strong> — {ADKAR_BARRIER_INTRO[b.id]} {ADKAR_SUGGESTIONS[b.id]}
-                      <div>Przykładowe działania: {ADKAR_EXAMPLES[b.id].join(", ")}.</div>
-                    </div>
+                    <div key={b.id} className="hint" style={{marginBottom:6}}>{ADKAR_BARRIER_INTRO[b.id]}</div>
                   ))}
                   {barrier.status === "barrier" && barrier.extraCount > 0 && (
                     <div className="hint" style={{marginBottom:6}}>
@@ -1992,24 +2033,6 @@ function Diagnoza({state, pctAvg, pctWeakestAreas, pctLatestScores, showPct, set
                   )}
                 </div>
               </div>
-            </React.Fragment>
-          );
-          if (catGroups.length===0){
-            return (
-              <details key={c.id} className="action-row">
-                <summary style={{cursor:"pointer"}}><strong>{c.label}</strong> <span className="muted">(brak przypisanych grup)</span></summary>
-                <div style={{marginTop:10}}>{body}</div>
-              </details>
-            );
-          }
-          return (
-            <div key={c.id} className="action-row">
-              <div className="top">
-                <strong>{c.label}</strong>
-                {barrier.status === "barrier" && <Badge tone="orange">Największa bariera: {barrierExportText(barrier)}</Badge>}
-                {barrier.status === "ready" && <Badge tone="green">Brak istotnej bariery</Badge>}
-              </div>
-              {body}
             </div>
           );
         })}
@@ -2033,21 +2056,20 @@ function Diagnoza({state, pctAvg, pctWeakestAreas, pctLatestScores, showPct, set
   );
 }
 
-function PlanDzialan({actionsByCategory, categoryBarrier, adkarByCategory, groups, addAction, updateAction, removeAction, milestones}){
+function PlanDzialan({actionsByCategory, categoryBarrier, groups, addAction, updateAction, removeAction, milestones}){
   // Rola bez przypisanej grupy nie ma jeszcze nic do planowania — pokazywanie jej tylko myli
   // (pusta sekcja z przyciskiem "Dodaj działanie", zgłoszone na zrzucie ekranu).
   const visibleCategories = CATEGORIES.filter(c => groups.some(g => g.categoryId === c.id));
-  // Lista wyboru "Z jakim etapem..." podpowiada etapy i kamienie milowe z karty, nie zwykłe
-  // działania (te trzecie nie są punktami odniesienia w harmonogramie).
-  const milestoneChoices = milestones.filter(m => m.typ !== "dzialanie");
+  // v2.0: lista wyboru podpowiada WSZYSTKIE pozycje z harmonogramu karty (etapy, kamienie i zwykłe
+  // działania) — pole przyjmuje też dowolny własny wpis, gdy nic pasującego nie ma na liście.
+  const milestoneChoices = milestones;
   return (
     <div className="card">
       <h2>Plan działań</h2>
-      <p className="hint">Dla każdej roli wobec zmiany wybierz 3 najważniejsze działania, które w największym stopniu pomogą usunąć zidentyfikowane bariery.</p>
+      <p className="hint">Dla każdej roli wobec zmiany zaplanuj 3 najważniejsze działania, które w największym stopniu pomogą usunąć zidentyfikowane bariery.</p>
       {visibleCategories.map(c => {
         const actions = actionsByCategory[c.id] || [];
         const barrier = categoryBarrier(c.id);
-        const wniosek = adkarByCategory[c.id]?.wniosek;
         const catGroups = groups.filter(g=>g.categoryId===c.id).map(g=>g.nazwa).filter(Boolean);
         const overSoftLimit = actions.length > MAX_ACTIONS_PER_CATEGORY;
         return (
@@ -2060,13 +2082,16 @@ function PlanDzialan({actionsByCategory, categoryBarrier, adkarByCategory, group
               <button className="small" onClick={()=>addAction(c.id)}>+ Dodaj działanie ({actions.length})</button>
             </div>
             {catGroups.length>0 && <div className="pill-list" style={{margin:"6px 0"}}>{catGroups.map(g=><span key={g} className="pill">{g}</span>)}</div>}
-            {wniosek && <p className="hint" style={{margin:"4px 0 10px"}}>Co powinno się zmienić dla tej grupy: {wniosek}</p>}
             {barrier.status === "barrier" && (
               <div style={{margin:"4px 0 10px"}}>
                 {barrier.dims.map(b => (
-                  <p key={b.id} className="hint" style={{margin:"2px 0"}}>
-                    Przykładowe działania na barierę „{b.label}”: {ADKAR_EXAMPLES[b.id].join(", ")}.
-                  </p>
+                  <div key={b.id} className="hint" style={{margin:"2px 0"}}>
+                    Przykładowe działania na barierę „{b.label}”: {ADKAR_EXAMPLES_SHORT[b.id].join(", ")}.
+                    <details style={{marginTop:2}}>
+                      <summary style={{cursor:"pointer"}}>Potrzebujesz więcej pomysłów?</summary>
+                      <div style={{marginTop:2}}>{ADKAR_EXAMPLES[b.id].join(", ")}.</div>
+                    </details>
+                  </div>
                 ))}
               </div>
             )}
@@ -2078,12 +2103,10 @@ function PlanDzialan({actionsByCategory, categoryBarrier, adkarByCategory, group
                   <span className="muted">Działanie</span>
                   <button className="small" onClick={()=>removeAction(a.id)}>Usuń</button>
                 </div>
-                <div className="grid cols2">
-                  <Field label="Działanie"><textarea value={a.dzialanie} onChange={e=>updateAction(a.id,"dzialanie",e.target.value)} placeholder="Co konkretnie zrobimy?"/></Field>
-                  <Field label="Jak sprawdzimy gotowość?"><textarea value={a.weryfikacja} onChange={e=>updateAction(a.id,"weryfikacja",e.target.value)} placeholder="Po czym poznamy, że grupa osiągnęła gotowość?"/></Field>
-                </div>
+                <Field label="Działanie"><textarea value={a.dzialanie} onChange={e=>updateAction(a.id,"dzialanie",e.target.value)} placeholder="Co konkretnie zrobimy?"/></Field>
                 <div className="grid cols3">
-                  <Field label="Z jakim etapem lub kamieniem milowym powiązane jest działanie?">
+                  <Field label="Z jakim działaniem lub kamieniem milowym powiązane jest to działanie?"
+                    hint="Możesz wybrać pozycję z listy (zaciągniętą z karty projektu) albo wpisać własną.">
                     <input type="text" list="milestones-dl" value={a.kamien} onChange={e=>updateAction(a.id,"kamien",e.target.value)}/>
                   </Field>
                   <Field label="Termin"><input type="date" value={a.termin} onChange={e=>updateAction(a.id,"termin",e.target.value)}/></Field>
@@ -2116,6 +2139,10 @@ function PlanDzialan({actionsByCategory, categoryBarrier, adkarByCategory, group
         <strong>Pamiętaj:</strong> kluczowe działania powinny zostać uwzględnione w harmonogramie projektu. Jeśli
         projekt jest prowadzony w FlexiProject, dodaj je również jako zadania w systemie.
       </div>
+      <div className="banner info">
+        <strong>Zapisz swoją pracę:</strong> praca nie zapisuje się sama — zamknięcie karty przeglądarki bez
+        eksportu oznacza jej utratę. Kliknij „Zapisz plik”, żeby zachować bieżącą wersję na dysku.
+      </div>
       <datalist id="milestones-dl">
         {milestoneChoices.map(m => <option key={m.id} value={m.nazwa}/>)}
       </datalist>
@@ -2145,6 +2172,17 @@ function Pulpit({project, level, surveyTotal, pctAvg, pctWeakestAreas, statusCou
 
       <div className="card">
         <h2>Pulpit planu działań</h2>
+        <div style={{marginBottom:16}}>
+          <div className="flex-between" style={{marginBottom:6}}>
+            <strong>Postęp realizacji</strong>
+            <span className="muted">
+              {statusCounts.all>0
+                ? (statusCounts["Zrealizowane"] + " z " + statusCounts.all + " działań zrealizowanych (" + Math.round(statusCounts["Zrealizowane"]/statusCounts.all*100) + "%)")
+                : "brak działań"}
+            </span>
+          </div>
+          <div className="bar-track"><div className="bar-fill" style={{width: (statusCounts.all>0 ? (statusCounts["Zrealizowane"]/statusCounts.all*100) : 0)+"%", background:"var(--green)"}}/></div>
+        </div>
         <div className="grid cols4">
           <div className="action-row" style={{textAlign:"center"}}><div style={{fontSize:24, fontWeight:700}}>{statusCounts.all}</div><div className="muted">wszystkie</div></div>
           <div className="action-row" style={{textAlign:"center"}}>
@@ -2180,14 +2218,15 @@ function Przewodnik(){
     <div className="card">
       <h2>Jak pracować z PZZ</h2>
       <p className="hint">
-        Zacznij od wczytania karty projektu w zakładce <strong>Dane projektu</strong> — bez tabelki „Grupy objęte
-        zmianą”, tę wypełnisz później, w miejscu zależnym od skali zmiany. Potem przejdź do <strong>Ankiety
-        — skala zmiany</strong>. Dopóki nie odpowiesz na wszystkie 13 pytań, narzędzie nie wie, jak duża jest
-        zmiana, i nie pokazuje żadnej dalszej ścieżki. Po ukończeniu ankiety pojawia się jedna z trzech ścieżek:
+        Zacznij od wczytania karty projektu w zakładce <strong>Dane projektu</strong> — metryczka, korzyści,
+        etapy/kamienie i grupy objęte zmianą zaciągną się automatycznie (grupy zawsze uzupełnia się w karcie, nie
+        w tym narzędziu). Potem przejdź do <strong>Ankiety — skala zmiany</strong>. Dopóki nie odpowiesz na
+        wszystkie 13 pytań, narzędzie nie wie, jak duża jest zmiana, i nie pokazuje żadnej dalszej ścieżki. Po
+        ukończeniu ankiety pojawia się jedna z trzech ścieżek:
       </p>
       <ul>
-        <li><strong>Poziom 1 (mała zmiana):</strong> zakładka „Checklisty” — krótkie pytania o sponsora. Grupy objęte zmianą wypełnij bezpośrednio w karcie projektu.</li>
-        <li><strong>Poziom 2 (średnia zmiana):</strong> „Checklisty” + „Diagnoza” (grupy i ADKAR, bez PCT) + „Plan działań” + „Pulpit”. Grupy wypełnij tutaj, w Diagnozie — nie duplikuj tego w karcie.</li>
+        <li><strong>Poziom 1 (mała zmiana):</strong> zakładka „Checklisty” — krótkie pytania o sponsora.</li>
+        <li><strong>Poziom 2 (średnia zmiana):</strong> „Checklisty” + „Diagnoza” (grupy i ADKAR, bez PCT) + „Plan działań” + „Pulpit”.</li>
         <li><strong>Poziom 3 (duża zmiana):</strong> „Diagnoza” (pełne PCT + ADKAR), „Plan działań” i „Pulpit”.</li>
       </ul>
       <p className="hint">
@@ -2195,10 +2234,21 @@ function Przewodnik(){
         i wypełnione pole „Co zmienia się w ich pracy?” — dopóki tak nie jest, te zakładki są ukryte.
       </p>
       <p className="hint">Jeśli w trakcie pracy okaże się, że zmiana jest inna niż na starcie, wróć do „Ankiety” i zmień odpowiedzi — ścieżka przełączy się automatycznie.</p>
+      <h3>Zapis i wznawianie pracy</h3>
+      <p className="hint">
+        To narzędzie działa lokalnie w przeglądarce i nic nie wysyła na serwer — ale to też znaczy, że odpowiedzi
+        nie zapisują się same. Zamknięcie karty przeglądarki bez eksportu oznacza utratę pracy od ostatniego
+        zapisu pliku.
+      </p>
+      <ol>
+        <li>Żeby przerwać pracę i wrócić do niej później, kliknij <strong>„Zapisz plik”</strong> — zapisze się plik Excel na Twoim dysku.</li>
+        <li>Wracając do pracy, wczytaj ten plik przyciskiem <strong>„Otwórz plik”</strong> — narzędzie odtworzy cały stan tam, gdzie skończyłeś/aś.</li>
+        <li>Ten sam mechanizm służy do kolejnych aktualizacji planu: przy każdej aktualizacji importuj poprzedni plik i pracuj na nim dalej, zamiast zaczynać od nowa.</li>
+      </ol>
       <h3>Praca w Diagnozie i Planie działań</h3>
       <ol>
         <li><strong>Diagnoza:</strong> (dla dużej zmiany) uzupełnij PCT, przypisz grupy do ról wobec zmiany i wykonaj oceny ADKAR.</li>
-        <li><strong>Plan:</strong> wpisz działania (celuj w {MAX_ACTIONS_PER_CATEGORY} na rolę wobec zmiany), sposób sprawdzenia gotowości i zaznacz, czy działanie trafiło do harmonogramu projektu.</li>
+        <li><strong>Plan:</strong> wpisz działania (celuj w {MAX_ACTIONS_PER_CATEGORY} na rolę wobec zmiany) i zaznacz, czy działanie trafiło do harmonogramu projektu.</li>
         <li><strong>Pulpit:</strong> podczas przeglądu aktualizuj statusy działań i reaguj na blokady.</li>
       </ol>
 
