@@ -872,7 +872,7 @@ function Bar({label, value, max=5, tone}){
     <div className="bar-row">
       <div className="label">{label}</div>
       <div className="bar-track"><div className="bar-fill" style={{width:pct+"%", background:color}}/></div>
-      <div className="bar-val">{value==null?"–":value}</div>
+      <div className="bar-val">{value==null?"–":(Math.round(value*10)/10)}</div>
     </div>
   );
 }
