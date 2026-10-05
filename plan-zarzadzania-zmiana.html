@@ -146,25 +146,17 @@ const ADKAR_BARRIER_INTRO = {
   ability: "Bariera Ability występuje, gdy ludzie mają wiedzę, ale nie potrafią zastosować jej w praktyce.",
   reinforcement: "Bariera Reinforcement występuje, gdy ludzie pracują już w nowy sposób, ale mogą wrócić do starych nawyków.",
 };
-// Pełna lista przykładów — do wglądu przy planowaniu działań (nie w ADKAR, tam wystarczy sama
-// bariera i jej wyjaśnienie). ADKAR_EXAMPLES_SHORT to 5 konkretnych, gotowych do wpisania do
-// harmonogramu pozycji pokazywanych domyślnie; ADKAR_EXAMPLES (ta sama treść co wcześniej) to
-// pełna, dłuższa lista pod „Potrzebujesz więcej pomysłów?” — docelową, obszerniejszą listę
-// przygotowują Martyna i Izabela.
+// Przykłady działań na barierę (dokładnie 3 na obszar) — dostarczone przez zespół PMO (Martyna,
+// Izabela), wklejone dosłownie. Pełna kafeteria działań żyje jako dokument na SharePoincie (link
+// pod przykładami w Planie działań), nie jako druga lista tutaj — żeby się nie rozjeżdżały.
 const ADKAR_EXAMPLES_SHORT = {
-  awareness: ["spotkanie informacyjne o powodach zmiany", "mailing do pracowników o zmianie", "krótka prezentacja na spotkaniu zespołu", "komunikat sponsora do objętych zmianą", "sesja pytań i odpowiedzi z zespołem projektowym"],
-  desire: ["warsztat dla kierowników o korzyściach zmiany", "indywidualna rozmowa z osobą zgłaszającą opór", "wystąpienie ambasadora zmiany", "prezentacja korzyści dopasowana do grupy", "konsultacje robocze z przedstawicielami grupy"],
-  knowledge: ["instrukcja krok po kroku dla nowego procesu", "krótki film instruktażowy", "szkolenie dla użytkowników", "FAQ z najczęstszymi pytaniami", "materiał wprowadzający dla menedżerów"],
-  ability: ["warsztat praktyczny na rzeczywistych przykładach", "dyżur eksperta w pierwszym tygodniu", "sesja mentoringowa dla nowych użytkowników", "test na środowisku szkoleniowym przed startem", "wsparcie on-the-job w pierwszych dniach"],
-  reinforcement: ["przegląd wskaźników wykorzystania po miesiącu", "przypomnienie mailowe o nowych zasadach", "aktualizacja procedury o nowe zasady", "krótkie podsumowanie efektów dla zespołu", "wyróżnienie osoby dobrze stosującej nowy sposób pracy"],
+  awareness: ["spotkanie zespołowe o powodach zmiany", "komunikat Sponsora wyjaśniający cel zmiany", "publikacja FAQ odpowiadającego na najczęstsze pytania"],
+  desire: ["warsztat zbierający obawy i pomysły pracowników", "pilotaż z udziałem użytkowników", "rozmowy indywidualne z osobami zgłaszającymi największe wątpliwości"],
+  knowledge: ["szkolenie dla użytkowników", "instrukcja krok po kroku", "baza wiedzy z materiałami i nagraniami"],
+  ability: ["warsztat praktyczny na rzeczywistych przypadkach", "dyżur eksperta po uruchomieniu rozwiązania", "środowisko testowe do ćwiczeń"],
+  reinforcement: ["monitorowanie wykorzystania rozwiązania", "badanie satysfakcji użytkowników po wdrożeniu", "przegląd wyników z przełożonymi i działania korygujące"],
 };
-const ADKAR_EXAMPLES = {
-  awareness: ["komunikacja powodów zmiany", "prezentacja korzyści", "spotkania informacyjne dla pracowników", "udział sponsora w rozmowach z kluczowymi grupami"],
-  desire: ["zaangażowanie przedstawicieli grup w projektowanie rozwiązania", "indywidualne rozmowy z osobami stawiającymi największy opór", "identyfikacja i adresowanie obaw", "pokazanie korzyści dla konkretnych grup", "wykorzystanie ambasadorów zmiany"],
-  knowledge: ["instrukcje krok po kroku", "baza wiedzy lub FAQ", "krótkie filmy instruktażowe", "webinary i sesje pytań i odpowiedzi", "checklisty dla użytkowników", "materiały dla menedżerów", "szkolenia"],
-  ability: ["ćwiczenia na rzeczywistych przypadkach", "okres wsparcia po uruchomieniu rozwiązania", "dyżury ekspertów", "mentoring lub coaching"],
-  reinforcement: ["uwzględnienie nowych zasad w procedurach", "monitorowanie wskaźników wykorzystania rozwiązania", "przeglądy po wdrożeniu", "regularne przypomnienia dla użytkowników", "omówienie efektów osiągniętych dzięki zmianie", "nagradzanie dobrych praktyk"],
-};
+const ADKAR_KAFETERIA_URL = "https://m365ht.sharepoint.com/:w:/r/sites/PMO_GrupaMerito/Repozytorium%20strony/Zarz%C4%85dzanie%20zmian%C4%85/Kafeteria%20dzia%C5%82a%C5%84%20-%20ADKAR,%20PCT.docx?d=w91f31403e2c644a0b6de8cac2d64c226&csf=1&web=1&e=RagZvw";
 
 // Opisy i przykładowe wpisy per obszar PCT — pokazywane automatycznie przy najsłabszym obszarze
 // (uwagi zespołu: "w pierwszej kolejności... wskazówkę czym trzeba się zająć").
@@ -2087,12 +2079,12 @@ function PlanDzialan({actionsByCategory, categoryBarrier, groups, addAction, upd
                 {barrier.dims.map(b => (
                   <div key={b.id} className="hint" style={{margin:"2px 0"}}>
                     Przykładowe działania na barierę „{b.label}”: {ADKAR_EXAMPLES_SHORT[b.id].join(", ")}.
-                    <details style={{marginTop:2}}>
-                      <summary style={{cursor:"pointer"}}>Potrzebujesz więcej pomysłów?</summary>
-                      <div style={{marginTop:2}}>{ADKAR_EXAMPLES[b.id].join(", ")}.</div>
-                    </details>
                   </div>
                 ))}
+                <p className="hint" style={{margin:"4px 0 0"}}>
+                  Potrzebujesz więcej pomysłów? Zajrzyj do <a href={ADKAR_KAFETERIA_URL} target="_blank" rel="noopener noreferrer">kafeterii działań (ADKAR, PCT)</a> — dokument
+                  otwiera się w SharePoincie Grupy Merito i wymaga zalogowania na konto firmowe; to osobna strona, nie część tego narzędzia (które działa offline, z dysku).
+                </p>
               </div>
             )}
             {overSoftLimit && <p className="hint">Więcej niż 3 działania — rozważ, czy da się je połączyć lub rozbić na etapy w ramach istniejących wierszy, zamiast dodawać kolejne.</p>}
