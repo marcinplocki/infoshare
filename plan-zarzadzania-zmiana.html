@@ -66,6 +66,14 @@
   .banner{border-radius:9px;padding:13px 17px;font-size:15px;margin-bottom:14px;}
   .banner.info{background:var(--accent-soft);color:var(--ink-soft);}
   .banner.warn{background:var(--orange-bg);color:var(--orange);}
+  .example-block{background:#fff;border:1px solid var(--line);border-left:3px solid var(--accent);border-radius:6px;padding:10px 14px;margin:6px 0 10px;}
+  .example-block .ex-title{margin:0 0 6px;font-size:12.5px;font-weight:800;color:var(--ink);text-transform:uppercase;letter-spacing:.03em;}
+  .example-block .ex-dim{font-size:13.5px;font-weight:600;color:var(--ink-soft);margin:6px 0 2px;}
+  .example-block ul{margin:0 0 2px;padding-left:18px;font-size:14.5px;color:var(--ink-soft);}
+  .example-block li{margin-bottom:2px;}
+  .example-block .ex-link{display:inline-block;margin-top:8px;font-weight:700;font-size:14.5px;color:var(--accent);text-decoration:none;}
+  .example-block .ex-link:hover{text-decoration:underline;}
+  .example-block .ex-note{display:block;margin-top:2px;font-size:12px;color:var(--muted);}
   .action-row{border:1px solid var(--line);border-radius:9px;padding:14px;margin-bottom:10px;background:#fbfcfc;}
   .action-row .top{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px;}
   .muted{color:var(--muted);}
@@ -1526,7 +1534,7 @@ function App(){
 
       {toast && <div style={{position:"fixed", bottom:16, right:16, maxWidth:360, background:"var(--ink)", color:"#fff", padding:"10px 16px", borderRadius:8, fontSize:13}}>{toast}</div>}
 
-      <footer className="app">Plan Zarządzania Zmianą · Grupa Merito · wersja robocza · v2.1</footer>
+      <footer className="app">Plan Zarządzania Zmianą · Grupa Merito · wersja robocza · v2.2</footer>
     </React.Fragment>
   );
 }
@@ -2075,16 +2083,18 @@ function PlanDzialan({actionsByCategory, categoryBarrier, groups, addAction, upd
             </div>
             {catGroups.length>0 && <div className="pill-list" style={{margin:"6px 0"}}>{catGroups.map(g=><span key={g} className="pill">{g}</span>)}</div>}
             {barrier.status === "barrier" && (
-              <div style={{margin:"4px 0 10px"}}>
+              <div className="example-block">
+                <div className="ex-title">Przykładowe działania</div>
                 {barrier.dims.map(b => (
-                  <div key={b.id} className="hint" style={{margin:"2px 0"}}>
-                    Przykładowe działania na barierę „{b.label}”: {ADKAR_EXAMPLES_SHORT[b.id].join(", ")}.
+                  <div key={b.id}>
+                    <div className="ex-dim">Bariera „{b.label}”:</div>
+                    <ul>
+                      {ADKAR_EXAMPLES_SHORT[b.id].map((ex, i) => <li key={i}>{ex}</li>)}
+                    </ul>
                   </div>
                 ))}
-                <p className="hint" style={{margin:"4px 0 0"}}>
-                  Potrzebujesz więcej pomysłów? Zajrzyj do <a href={ADKAR_KAFETERIA_URL} target="_blank" rel="noopener noreferrer">kafeterii działań (ADKAR, PCT)</a> — dokument
-                  otwiera się w SharePoincie Grupy Merito i wymaga zalogowania na konto firmowe; to osobna strona, nie część tego narzędzia (które działa offline, z dysku).
-                </p>
+                <a className="ex-link" href={ADKAR_KAFETERIA_URL} target="_blank" rel="noopener noreferrer">Potrzebujesz więcej pomysłów? Zajrzyj do kafeterii działań (ADKAR, PCT)</a>
+                <span className="ex-note">— dokument otwiera się w SharePoincie Grupy Merito i wymaga zalogowania na konto firmowe; to osobna strona, nie część tego narzędzia (które działa offline, z dysku).</span>
               </div>
             )}
             {overSoftLimit && <p className="hint">Więcej niż 3 działania — rozważ, czy da się je połączyć lub rozbić na etapy w ramach istniejących wierszy, zamiast dodawać kolejne.</p>}
