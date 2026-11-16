@@ -74,6 +74,20 @@
   .example-block .ex-link{display:inline-block;margin-top:8px;font-weight:700;font-size:14.5px;color:var(--accent);text-decoration:none;}
   .example-block .ex-link:hover{text-decoration:underline;}
   .example-block .ex-note{display:block;margin-top:2px;font-size:12px;color:var(--muted);}
+  .progress-indeterminate{position:relative;height:6px;background:var(--accent-soft);border-radius:3px;overflow:hidden;margin-top:8px;}
+  .progress-indeterminate::before{content:"";position:absolute;top:0;left:-40%;width:40%;height:100%;background:var(--accent);border-radius:3px;animation:pzz-indeterminate 1.4s ease-in-out infinite;}
+  @keyframes pzz-indeterminate{0%{left:-40%;}100%{left:100%;}}
+  .ai-details{margin-top:10px;font-size:14.5px;}
+  .ai-section{border:1px solid var(--line);border-radius:8px;padding:10px 14px;margin-top:10px;background:#fff;}
+  .ai-section.ai-pending{border-left:3px solid var(--orange);}
+  .ai-section-title{font-weight:700;color:var(--ink);margin-bottom:6px;}
+  summary.ai-section-title{cursor:pointer;margin-bottom:0;}
+  details[open] > summary.ai-section-title{margin-bottom:8px;}
+  .ai-section ul{margin:0;padding-left:18px;}
+  .ai-subtitle{font-size:12.5px;font-weight:800;text-transform:uppercase;letter-spacing:.03em;color:var(--muted);margin:12px 0 4px;}
+  .ai-row{padding:6px 0;border-top:1px solid var(--line);}
+  .ai-quote summary{cursor:pointer;font-size:13px;color:var(--accent);margin-top:2px;}
+  .ai-quote blockquote{margin:4px 0 2px;padding:6px 10px;border-left:3px solid var(--line);background:var(--paper);font-size:13.5px;color:var(--ink-soft);white-space:pre-wrap;}
   .action-row{border:1px solid var(--line);border-radius:9px;padding:14px;margin-bottom:10px;background:#fbfcfc;}
   .action-row .top{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px;}
   .muted{color:var(--muted);}
@@ -808,6 +822,197 @@ function parseKartaHtml(html){
   };
 }
 
+/* ---------- Odczyt karty z pomocą AI (tylko online, planzmiany.pl) ---------- */
+
+// AI działa wyłącznie na opublikowanej stronie — tam serwer ma proxy /api/ai.php z kluczem.
+// Plik otwarty z dysku (file://) albo z innego adresu działa dokładnie jak wcześniej, bez AI.
+// Rozpoznajemy tryb po adresie strony, BEZ zapytania testowego (każde zapytanie zjada limit).
+const AI_AVAILABLE = typeof location !== "undefined"
+  && location.protocol === "https:" && /^(www\.)?planzmiany\.pl$/i.test(location.hostname);
+const AI_TIMEOUT_MS = 90000;
+const AI_FIELD_KEYS = ["nazwa", "typProjektu", "filie", "okresRealizacji", "sponsor", "pm"];
+const AI_LIST_FIELD_KEYS = ["sponsor", "pm"];
+const AI_KARTA_TYPES = ["projekt", "uczelnia", "program"];
+const AI_MILESTONE_TYPES = ["etap", "kamien", "dzialanie"];
+
+// Do modelu idzie tekst, nie HTML (HTML jest kilka razy dłuższy). Akapity w komórce łączone " / ",
+// komórki wiersza " | ". Celowo osobna funkcja — cellText (spacja) zostaje dla parsera zapasowego.
+function cellTextForAi(node){
+  const blocks = node.querySelectorAll("p, li");
+  const t = blocks.length
+    ? Array.from(blocks).map(b => (b.textContent||"").trim()).filter(Boolean).join(" / ")
+    : (node.textContent || "");
+  return t.replace(/\s+/g, " ").trim();
+}
+
+function kartaToText(html){
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  const out = [];
+  Array.from(doc.body.children).forEach(el => {
+    if (el.tagName === "TABLE"){
+      Array.from(el.rows).forEach(r => {
+        const cells = Array.from(r.cells).map(cellTextForAi);
+        if (cells.some(Boolean)) out.push(cells.join(" | "));
+      });
+      out.push("");
+    } else {
+      const t = (el.textContent || "").replace(/\s+/g, " ").trim();
+      if (t) out.push(t);
+    }
+  });
+  return out.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+// Zabezpieczenie przed zmyśleniem: każda wartość od modelu ma "cytat" — dosłowny fragment karty.
+// Wartość uznajemy za zweryfikowaną tylko wtedy, gdy ten cytat naprawdę występuje w tekście, który
+// wysłaliśmy do modelu. Obie strony normalizujemy, bo model potrafi "poprawić" myślnik, cudzysłów
+// czy podwójną spację, a to nie jest zmyślenie.
+//
+// Asercje (ręcznie sprawdzone; src = normalizeForQuote(tekst karty)):
+//   quoteFoundInText("Tomasz Wiśniewski - Dyrektor", normalizeForQuote("3 | SPONSOR* | Tomasz Wiśniewski – Dyrektor Finansowy")) === true   // inny myślnik
+//   quoteFoundInText("Tomasz   Wiśniewski",          normalizeForQuote("Tomasz Wiśniewski – Dyrektor"))                       === true   // białe znaki
+//   quoteFoundInText("TOMASZ WIŚNIEWSKI",            normalizeForQuote("Tomasz Wiśniewski – Dyrektor"))                       === true   // wielkość liter
+//   quoteFoundInText("„Grupy objęte zmianą”",        normalizeForQuote("tabela \"Grupy objęte zmianą\""))                     === true   // cudzysłowy
+//   quoteFoundInText("Jan Kowalski",                 normalizeForQuote("Tomasz Wiśniewski – Dyrektor"))                       === false  // brak w karcie
+//   quoteFoundInText("", src) === false;  quoteFoundInText(null, src) === false;  quoteFoundInText("   ", src) === false
+function normalizeForQuote(s){
+  return String(s == null ? "" : s).normalize("NFC")
+    .replace(/[“”„‟«»″]/g, '"')
+    .replace(/[‘’‚‛′]/g, "'")
+    .replace(/[‐-―−]/g, "-")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+function quoteFoundInText(quote, normalizedSource){
+  const q = normalizeForQuote(quote);
+  return q.length > 0 && normalizedSource.includes(q);
+}
+
+// Każda porażka AI kończy się odczytem przez parser — message trafia do komunikatu
+// "Nie udało się odczytać karty z pomocą AI (…)", więc ma być krótki i po polsku.
+class AiImportError extends Error {}
+
+async function requestAiKarta(inputText, signal){
+  let res;
+  try {
+    res = await fetch("/api/ai.php", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({task: "import_karty", input: inputText}),
+      signal,
+    });
+  } catch(e){
+    if (e && e.name === "AbortError") throw new AiImportError("przekroczono czas oczekiwania na odpowiedź");
+    throw new AiImportError("brak połączenia z serwerem");
+  }
+  let body = null;
+  try { body = await res.json(); } catch(e){ body = null; }
+  if (res.status !== 200 || !body || body.ok !== true){
+    // Serwer zwraca komunikaty gotowe do pokazania (np. o limicie przy HTTP 429).
+    const serverMsg = body && typeof body.error === "string" ? body.error.trim().replace(/\.$/, "") : "";
+    if (serverMsg) throw new AiImportError(serverMsg);
+    throw new AiImportError(res.status === 429 ? "przekroczono limit zapytań" : "błąd serwera (HTTP " + res.status + ")");
+  }
+  if (body.stop_reason === "max_tokens") throw new AiImportError("odpowiedź została ucięta");
+  if (typeof body.text !== "string") throw new AiImportError("nieprawidłowa odpowiedź serwera");
+  return body.text;
+}
+
+// Model bywa "uprzejmy" i owija JSON w ```json … ``` albo dopisuje zdanie — bierzemy tekst od
+// pierwszego "{" do ostatniego "}".
+function extractJsonObject(text){
+  const t = String(text || "").replace(/```(?:json)?/gi, "");
+  const a = t.indexOf("{"), b = t.lastIndexOf("}");
+  if (a === -1 || b <= a) throw new AiImportError("odpowiedź nie zawiera danych");
+  try { return JSON.parse(t.slice(a, b + 1)); }
+  catch(e){ throw new AiImportError("niepoprawny format odpowiedzi"); }
+}
+
+// Sprawdzenie struktury wg kontraktu z serwerem. Brak cytatu NIE jest błędem struktury — taka
+// wartość po prostu zostaje niezweryfikowana. Każde inne odstępstwo = tryb zapasowy.
+function validateAiKarta(o){
+  const fail = () => { throw new AiImportError("nieprawidłowa struktura odpowiedzi"); };
+  const isObj = v => v !== null && typeof v === "object" && !Array.isArray(v);
+  const strOrNull = v => v === null || v === undefined || typeof v === "string";
+  const nonEmptyStr = v => typeof v === "string" && v.trim() !== "";
+  if (!isObj(o) || !isObj(o.fields)) fail();
+  if (!(o.kartaType === null || o.kartaType === undefined || AI_KARTA_TYPES.includes(o.kartaType))) fail();
+  AI_FIELD_KEYS.forEach(k => {
+    const f = o.fields[k];
+    if (!isObj(f) || !strOrNull(f.cytat)) fail();
+    const w = f.wartosc;
+    if (AI_LIST_FIELD_KEYS.includes(k)){
+      if (!(w === null || (Array.isArray(w) && w.every(x => typeof x === "string")))) fail();
+    } else if (!(w === null || typeof w === "string")) fail();
+  });
+  if (!Array.isArray(o.groups) || !Array.isArray(o.milestones) || !Array.isArray(o.benefits)) fail();
+  if (!(o.uwagi === undefined || (Array.isArray(o.uwagi) && o.uwagi.every(x => typeof x === "string")))) fail();
+  o.groups.forEach(g => { if (!isObj(g) || !nonEmptyStr(g.nazwa) || !strOrNull(g.wplyw) || !strOrNull(g.cytat)) fail(); });
+  o.milestones.forEach(m => {
+    if (!isObj(m) || !nonEmptyStr(m.nazwa) || !strOrNull(m.termin) || !AI_MILESTONE_TYPES.includes(m.typ) || !strOrNull(m.cytat)) fail();
+  });
+  o.benefits.forEach(b => {
+    if (!isObj(b) || !nonEmptyStr(b.korzysc) || !strOrNull(b.kategoria) || !strOrNull(b.termin) || !strOrNull(b.miernik) || !strOrNull(b.cytat)) fail();
+  });
+  return o;
+}
+
+// Mapuje odpowiedź na strukturę parsera (reszta aplikacji się nie zmienia) i oznacza każdą
+// pozycję: "verified" (cytat jest w karcie), "unverified" (brak cytatu albo cytatu nie ma w karcie),
+// "missing" (pole metryczki = null, czyli „brak w karcie").
+function verifyAiKarta(ai, sourceText){
+  const src = normalizeForQuote(sourceText);
+  const statusOf = quote => quoteFoundInText(quote, src) ? "verified" : "unverified";
+  const s = v => (v == null ? "" : String(v).trim());
+  let seq = 0;
+  const item = (kind, data, quote) => ({id: kind + "-" + (seq++), kind, data, quote: s(quote), status: statusOf(quote)});
+  const fields = AI_FIELD_KEYS.map(key => {
+    const f = ai.fields[key];
+    const value = Array.isArray(f.wartosc) ? f.wartosc.map(s).filter(Boolean).join("; ") : s(f.wartosc);
+    return {id: "field-" + key, kind: "field", key, data: {value}, quote: s(f.cytat),
+      status: value ? statusOf(f.cytat) : "missing"};
+  });
+  return {
+    kartaType: ai.kartaType || null,
+    fields,
+    groups: ai.groups.map(g => item("group", {nazwa: s(g.nazwa), wplyw: s(g.wplyw)}, g.cytat)),
+    milestones: ai.milestones.map(m => item("milestone", {nazwa: s(m.nazwa), termin: s(m.termin), typ: m.typ}, m.cytat)),
+    benefits: ai.benefits.map(b => item("benefit", {korzysc: s(b.korzysc), kategoria: s(b.kategoria), termin: s(b.termin), miernik: s(b.miernik)}, b.cytat)),
+    uwagi: (ai.uwagi || []).map(s).filter(Boolean),
+  };
+}
+
+// Tylko zweryfikowane wartości trafiają do automatycznego zastosowania.
+function verifiedToParsed(v){
+  const ok = arr => arr.filter(i => i.status === "verified").map(i => i.data);
+  const fields = {};
+  v.fields.forEach(f => { if (f.status === "verified") fields[f.key] = f.data.value; });
+  return {kartaType: v.kartaType, fields, groups: ok(v.groups), milestones: ok(v.milestones), benefits: ok(v.benefits)};
+}
+function aiPendingItems(v){
+  return [...v.fields, ...v.groups, ...v.milestones, ...v.benefits].filter(i => i.status === "unverified");
+}
+
+// PILOTAŻ – do usunięcia po testach (razem z komponentem KartaAiComparePilot).
+// Zestawia odczyt AI (wszystkie wartości, także niezweryfikowane) z odczytem parsera z v2.2.
+function buildKartaComparison(v, parsed){
+  const norm = x => normalizeForQuote(x);
+  const fieldDiffs = AI_FIELD_KEYS
+    .map(key => ({key, ai: (v.fields.find(f => f.key === key) || {data:{value:""}}).data.value, parser: parsed.fields[key] || ""}))
+    .filter(d => norm(d.ai) !== norm(d.parser));
+  const byType = (list, get) => AI_MILESTONE_TYPES.map(t => list.filter(m => get(m) === t).length).join(" / ");
+  return {
+    fieldDiffs,
+    counts: [
+      {label: "Grupy objęte zmianą", ai: v.groups.length, parser: parsed.groups.length},
+      {label: "Etapy + kamienie + działania", ai: v.milestones.length, parser: parsed.milestones.length},
+      {label: "…w tym etapy / kamienie / działania", ai: byType(v.milestones, m => m.data.typ), parser: byType(parsed.milestones, m => m.typ)},
+      {label: "Korzyści biznesowe", ai: v.benefits.length, parser: parsed.benefits.length},
+    ],
+  };
+}
+
 /* ---------- localStorage ---------- */
 
 const LS_KEY = "pzz_merito_versions_v1";
@@ -888,6 +1093,12 @@ function App(){
   const [toast, setToast] = useState(null);
   const [kartaImport, setKartaImport] = useState(null);
   const [kartaPreImportSnapshot, setKartaPreImportSnapshot] = useState(null);
+  const [useAiForKarta, setUseAiForKarta] = useState(true);
+  const [kartaAiBusySince, setKartaAiBusySince] = useState(null);
+  // Odczyt przez AI trwa 10–40 s, a użytkownik może w tym czasie edytować pola — wynik nakładamy
+  // na NAJNOWSZY stan, nie na ten sprzed wysłania zapytania.
+  const stateRef = useRef(state);
+  stateRef.current = state;
   const excelInputRef = useRef(null);
   const kartaInputRef = useRef(null);
   const versionsDialogRef = useRef(null);
@@ -1016,40 +1227,111 @@ function App(){
   // poprzednią listę. `kartaPreImportSnapshot` trzyma stan SPRZED importu, żeby jednym klikiem
   // dało się cofnąć cały import, gdyby karta była zła.
   function handleKartaFile(file){
+    if (kartaAiBusySince) return;
     const reader = new FileReader();
     reader.onload = () => {
       mammoth.convertToHtml({arrayBuffer: reader.result})
         .then(result => {
-          const parsed = parseKartaHtml(result.value);
-          const found = Object.keys(parsed.fields).length + parsed.groups.length + parsed.milestones.length + parsed.benefits.length;
-          if (found === 0){ setKartaImport({fileName: file.name, failed:true}); return; }
-          const snapshot = state;
-          const existingGroupNames = new Set(state.groups.map(g => (g.nazwa||"").trim().toLowerCase()));
-          const newGroups = parsed.groups
-            .filter(g => g.nazwa && !existingGroupNames.has(g.nazwa.trim().toLowerCase()))
-            .map(g => ({id:cryptoId(), nazwa:g.nazwa, wplyw:g.wplyw, categoryId: ""}));
-          const existingMilestoneNames = new Set(state.milestones.map(m => (m.nazwa||"").trim().toLowerCase()));
-          const newMilestones = parsed.milestones
-            .filter(m => m.nazwa && !existingMilestoneNames.has(m.nazwa.trim().toLowerCase()))
-            .map(m => ({id:cryptoId(), ...m}));
-          setState(sanitizeProjectState({
-            ...state,
-            project: {...state.project, ...parsed.fields, ...(parsed.kartaType ? {kartaType: parsed.kartaType} : {})},
-            groups: [...state.groups, ...newGroups],
-            milestones: [...state.milestones, ...newMilestones],
-            benefits: parsed.benefits.length ? parsed.benefits : state.benefits,
-          }));
-          setKartaPreImportSnapshot(snapshot);
-          setKartaImport({
-            fileName: file.name, failed:false,
-            fieldsCount: Object.keys(parsed.fields).length, groupsAdded: newGroups.length,
-            milestonesAdded: newMilestones.length, benefitsCount: parsed.benefits.length,
-          });
-          setToast("Zastosowano dane z karty: " + file.name);
+          if (AI_AVAILABLE && useAiForKarta) return importKartaViaAi(result.value, file.name);
+          importKartaViaParser(result.value, file.name, AI_AVAILABLE ? {method: "parser"} : {});
         })
         .catch(() => setKartaImport({fileName: file.name, failed:true}));
     };
     reader.readAsArrayBuffer(file);
+  }
+
+  // Wspólne dla obu ścieżek (parser i AI): zastosowanie danych + zapamiętanie stanu do cofnięcia.
+  function applyKartaResult(parsed, fileName, extra){
+    const base = stateRef.current;
+    const existingGroupNames = new Set(base.groups.map(g => (g.nazwa||"").trim().toLowerCase()));
+    const newGroups = parsed.groups
+      .filter(g => g.nazwa && !existingGroupNames.has(g.nazwa.trim().toLowerCase()))
+      .map(g => ({id:cryptoId(), nazwa:g.nazwa, wplyw:g.wplyw, categoryId: ""}));
+    const existingMilestoneNames = new Set(base.milestones.map(m => (m.nazwa||"").trim().toLowerCase()));
+    const newMilestones = parsed.milestones
+      .filter(m => m.nazwa && !existingMilestoneNames.has(m.nazwa.trim().toLowerCase()))
+      .map(m => ({id:cryptoId(), ...m}));
+    setState(sanitizeProjectState({
+      ...base,
+      project: {...base.project, ...parsed.fields, ...(parsed.kartaType ? {kartaType: parsed.kartaType} : {})},
+      groups: [...base.groups, ...newGroups],
+      milestones: [...base.milestones, ...newMilestones],
+      benefits: parsed.benefits.length ? parsed.benefits : base.benefits,
+    }));
+    setKartaPreImportSnapshot(base);
+    setKartaImport({
+      fileName, failed:false,
+      fieldsCount: Object.keys(parsed.fields).length, groupsAdded: newGroups.length,
+      milestonesAdded: newMilestones.length, benefitsCount: parsed.benefits.length,
+      ...extra,
+    });
+  }
+
+  function importKartaViaParser(html, fileName, extra){
+    const parsed = parseKartaHtml(html);
+    const found = Object.keys(parsed.fields).length + parsed.groups.length + parsed.milestones.length + parsed.benefits.length;
+    if (found === 0){ setKartaImport({fileName, failed:true, ...extra}); return; }
+    applyKartaResult(parsed, fileName, extra);
+    setToast("Zastosowano dane z karty: " + fileName);
+  }
+
+  // Ścieżka AI. Każda porażka (sieć, czas, HTTP≠200, ok:false, zły JSON, ucięta odpowiedź, zła
+  // struktura, pusty wynik) kończy się odczytem przez parser — użytkownik nigdy nie zostaje bez danych.
+  async function importKartaViaAi(html, fileName){
+    setKartaImport(null);
+    setKartaAiBusySince(Date.now());
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), AI_TIMEOUT_MS);
+    let outcome = null;
+    try {
+      const text = kartaToText(html);
+      const raw = await requestAiKarta(text, controller.signal);
+      const v = verifyAiKarta(validateAiKarta(extractJsonObject(raw)), text);
+      const anything = v.fields.some(f => f.status !== "missing") || v.groups.length || v.milestones.length || v.benefits.length;
+      if (!anything) throw new AiImportError("nie odczytano z karty żadnych danych");
+      outcome = {
+        parsed: verifiedToParsed(v),
+        extra: {
+          method: "ai",
+          ai: {verification: v, pending: aiPendingItems(v), appliedIds: [], uwagi: v.uwagi},
+          compare: buildKartaComparison(v, parseKartaHtml(html)), // PILOTAŻ – do usunięcia po testach
+        },
+      };
+    } catch(e){
+      outcome = {fallbackReason: e instanceof AiImportError ? e.message : "nieoczekiwany błąd"};
+    } finally {
+      clearTimeout(timer);
+      setKartaAiBusySince(null);
+    }
+    if (outcome.fallbackReason){
+      importKartaViaParser(html, fileName, {method: "parser-fallback", fallbackReason: outcome.fallbackReason});
+      return;
+    }
+    applyKartaResult(outcome.parsed, fileName, outcome.extra);
+    const pendingCount = outcome.extra.ai.pending.length;
+    setToast("Zastosowano dane z karty: " + fileName + (pendingCount ? (" · " + pendingCount + " do sprawdzenia") : ""));
+  }
+
+  // "Zastosuj mimo to" dla wartości, której cytatu nie znaleziono w karcie. Cofnięcie importu
+  // przywraca stan sprzed całego importu — także sprzed tych ręcznie zastosowanych pozycji.
+  function applyPendingKartaItem(itemId){
+    const it = kartaImport && kartaImport.ai ? kartaImport.ai.pending.find(p => p.id === itemId) : null;
+    if (!it || kartaImport.ai.appliedIds.includes(itemId)) return;
+    const same = (a, b) => (a||"").trim().toLowerCase() === (b||"").trim().toLowerCase();
+    setState(s => {
+      if (it.kind === "field") return {...s, project: {...s.project, [it.key]: it.data.value}};
+      if (it.kind === "group"){
+        if (s.groups.some(g => same(g.nazwa, it.data.nazwa))) return s;
+        return {...s, groups: [...s.groups, {id:cryptoId(), nazwa: it.data.nazwa, wplyw: it.data.wplyw, categoryId: ""}]};
+      }
+      if (it.kind === "milestone"){
+        if (s.milestones.some(m => same(m.nazwa, it.data.nazwa))) return s;
+        return {...s, milestones: [...s.milestones, {id:cryptoId(), ...it.data}]};
+      }
+      if (s.benefits.some(b => same(b.korzysc, it.data.korzysc))) return s;
+      return {...s, benefits: [...s.benefits, {...it.data}]};
+    });
+    setKartaImport(prev => prev && prev.ai ? {...prev, ai: {...prev.ai, appliedIds: [...prev.ai.appliedIds, itemId]}} : prev);
   }
   function undoKartaImport(){
     if (!kartaPreImportSnapshot) return;
@@ -1484,6 +1766,8 @@ function App(){
           kartaImport={kartaImport} onUndoKarta={undoKartaImport} onDismissKarta={dismissKartaImport}
           canUndoKarta={!!kartaPreImportSnapshot}
           benefits={state.benefits}
+          useAi={useAiForKarta} setUseAi={setUseAiForKarta} aiBusySince={kartaAiBusySince}
+          onApplyPending={applyPendingKartaItem}
         />}
         {tab==="ankieta" && <Ankieta answers={state.surveyAnswers} setAnswer={setSurveyAnswer} total={surveyTotal} level={level} goTo={setTab}/>}
         {tab==="checklisty" && canSeeChecklist && <Checklisty level={level} checklist={state.checklist12} toggle={toggleChecklist}/>}
@@ -1534,7 +1818,7 @@ function App(){
 
       {toast && <div style={{position:"fixed", bottom:16, right:16, maxWidth:360, background:"var(--ink)", color:"#fff", padding:"10px 16px", borderRadius:8, fontSize:13}}>{toast}</div>}
 
-      <footer className="app">Plan Zarządzania Zmianą · Grupa Merito · wersja robocza · v2.2</footer>
+      <footer className="app">Plan Zarządzania Zmianą · Grupa Merito · wersja robocza · v2.3</footer>
     </React.Fragment>
   );
 }
@@ -1546,7 +1830,137 @@ const KARTA_FIELD_LABELS = {
   typProjektu: "Typ projektu", filie: "Filie objęte projektem", okresRealizacji: "Okres realizacji",
 };
 
-function DaneProjektu({project, setField, kartaInputRef, onKartaFile, kartaImport, onUndoKarta, canUndoKarta, onDismissKarta, benefits}){
+function aiItemLabel(it){
+  if (it.kind === "field") return KARTA_FIELD_LABELS[it.key] || it.key;
+  if (it.kind === "group") return "Grupa";
+  if (it.kind === "milestone") return MILESTONE_TYPE_LABELS[it.data.typ] || "Etap/kamień";
+  return "Korzyść";
+}
+function aiItemValue(it){
+  const d = it.data;
+  if (it.kind === "field") return d.value;
+  if (it.kind === "group") return d.nazwa + (d.wplyw ? " — " + d.wplyw : "");
+  if (it.kind === "milestone") return d.nazwa + (d.termin ? " (" + d.termin + ")" : "");
+  const extra = [d.kategoria && ("kategoria: " + d.kategoria), d.termin && ("kiedy: " + d.termin), d.miernik && ("miernik: " + d.miernik)].filter(Boolean);
+  return d.korzysc + (extra.length ? " · " + extra.join(" · ") : "");
+}
+function AiQuote({quote}){
+  return (
+    <details className="ai-quote">
+      <summary>Skąd to wiem?</summary>
+      {quote ? <blockquote>{quote}</blockquote> : <div className="muted">Brak cytatu z karty.</div>}
+    </details>
+  );
+}
+
+// Podgląd odczytu przez AI: uwagi modelu, wartości niezweryfikowane (do ręcznej decyzji) oraz
+// pełna lista odczytanych wartości z cytatem źródłowym przy każdej.
+function KartaAiDetails({ai, onApplyPending}){
+  const v = ai.verification;
+  const remaining = ai.pending.filter(p => !ai.appliedIds.includes(p.id));
+  const statusBadge = it => {
+    if (it.status === "missing") return <Badge tone="gray">brak w karcie</Badge>;
+    if (it.status === "verified") return <Badge tone="green">znaleziono w karcie</Badge>;
+    if (ai.appliedIds.includes(it.id)) return <Badge tone="gray">zastosowano mimo to</Badge>;
+    return <Badge tone="orange">Nie znaleziono w karcie – sprawdź</Badge>;
+  };
+  const sections = [
+    {title: "Metryczka", items: v.fields},
+    {title: "Grupy objęte zmianą", items: v.groups},
+    {title: "Etapy, kamienie milowe i działania", items: v.milestones},
+    {title: "Główne korzyści biznesowe", items: v.benefits},
+  ];
+  const total = v.fields.length + v.groups.length + v.milestones.length + v.benefits.length;
+  return (
+    <div className="ai-details">
+      {ai.uwagi.length > 0 && (
+        <div className="ai-section">
+          <div className="ai-section-title">Do sprawdzenia w karcie</div>
+          <ul>{ai.uwagi.map((u, i) => <li key={i}>{u}</li>)}</ul>
+        </div>
+      )}
+      {remaining.length > 0 && (
+        <div className="ai-section ai-pending">
+          <div className="ai-section-title">Nie znaleziono w karcie – sprawdź ({remaining.length})</div>
+          <p className="hint" style={{margin:"0 0 8px"}}>
+            Tych wartości nie zastosowano automatycznie, bo podanego przy nich fragmentu nie ma w karcie. Sprawdź je
+            w karcie i zastosuj tylko te, które są poprawne.
+          </p>
+          {remaining.map(it => (
+            <div key={it.id} className="ai-row">
+              <div className="flex-between">
+                <div style={{flex:"1 1 0", minWidth:0}}><span className="muted">{aiItemLabel(it)}:</span> {aiItemValue(it)}</div>
+                <button className="small" onClick={() => onApplyPending(it.id)}>Zastosuj mimo to</button>
+              </div>
+              <AiQuote quote={it.quote}/>
+            </div>
+          ))}
+        </div>
+      )}
+      <details className="ai-section">
+        <summary className="ai-section-title">Wszystkie odczytane wartości ({total})</summary>
+        {sections.map(sec => (
+          <div key={sec.title}>
+            <div className="ai-subtitle">{sec.title}</div>
+            {sec.items.length === 0 && <div className="muted">brak w karcie</div>}
+            {sec.items.map(it => (
+              <div key={it.id} className="ai-row">
+                <div className="flex-between">
+                  <div style={{flex:"1 1 0", minWidth:0}}><span className="muted">{aiItemLabel(it)}:</span> {it.status === "missing" ? "—" : aiItemValue(it)}</div>
+                  {statusBadge(it)}
+                </div>
+                {it.status !== "missing" && <AiQuote quote={it.quote}/>}
+              </div>
+            ))}
+          </div>
+        ))}
+      </details>
+    </div>
+  );
+}
+
+// PILOTAŻ – do usunięcia po testach (razem z buildKartaComparison i polem kartaImport.compare).
+function KartaAiComparePilot({compare}){
+  return (
+    <details className="ai-section ai-details" style={{marginTop:10}}>
+      <summary className="ai-section-title">Porównanie z odczytem standardowym (pilotaż)</summary>
+      <div className="ai-subtitle">Pola metryczki, w których wyniki się różnią</div>
+      {compare.fieldDiffs.length === 0
+        ? <div className="muted">Brak różnic.</div>
+        : (
+          <table>
+            <thead><tr><th>Pole</th><th>AI</th><th>Odczyt standardowy</th></tr></thead>
+            <tbody>{compare.fieldDiffs.map(d => (
+              <tr key={d.key}><td>{KARTA_FIELD_LABELS[d.key] || d.key}</td><td>{d.ai || "—"}</td><td>{d.parser || "—"}</td></tr>
+            ))}</tbody>
+          </table>
+        )}
+      <div className="ai-subtitle">Liczba odczytanych pozycji</div>
+      <table>
+        <thead><tr><th></th><th>AI</th><th>Odczyt standardowy</th></tr></thead>
+        <tbody>{compare.counts.map(c => (
+          <tr key={c.label}><td>{c.label}</td><td>{c.ai}</td><td>{c.parser}</td></tr>
+        ))}</tbody>
+      </table>
+    </details>
+  );
+}
+
+function DaneProjektu({project, setField, kartaInputRef, onKartaFile, kartaImport, onUndoKarta, canUndoKarta, onDismissKarta, benefits, useAi, setUseAi, aiBusySince, onApplyPending}){
+  const [now, setNow] = useState(Date.now());
+  useEffect(()=>{
+    if (!aiBusySince) return;
+    setNow(Date.now());
+    const t = setInterval(()=>setNow(Date.now()), 1000);
+    return ()=>clearInterval(t);
+  }, [aiBusySince]);
+  const busy = !!aiBusySince;
+  const elapsed = busy ? Math.max(0, Math.round((now - aiBusySince)/1000)) : 0;
+  // Wzmianki o metodzie odczytu tylko online — offline (plik z dysku) narzędzie wygląda jak w v2.2.
+  const methodLabel = AI_AVAILABLE && kartaImport && kartaImport.method
+    ? (kartaImport.method === "ai" ? "Odczytano z pomocą AI" : "Odczytano automatycznie (bez AI)") : null;
+  const fallbackMsg = AI_AVAILABLE && kartaImport && kartaImport.fallbackReason
+    ? ("Nie udało się odczytać karty z pomocą AI (" + kartaImport.fallbackReason + "). Użyto odczytu standardowego.") : null;
   return (
     <React.Fragment>
       <div className="card">
@@ -1577,9 +1991,28 @@ function DaneProjektu({project, setField, kartaInputRef, onKartaFile, kartaImpor
           korzyści biznesowe, etapy i kamienie milowe oraz grupy objęte zmianą, i stosuje je od razu. Jeśli coś zaciągnie
           się źle, popraw pole ręcznie poniżej albo cofnij cały import.
         </p>
+        {AI_AVAILABLE && (
+          <div style={{margin:"0 0 12px"}}>
+            <label style={{display:"flex", alignItems:"center", gap:8, color:"var(--ink)", margin:0, cursor:"pointer"}}>
+              <input type="checkbox" checked={useAi} disabled={busy} onChange={e=>setUseAi(e.target.checked)}/>
+              Odczytaj kartę z pomocą AI
+            </label>
+            <p className="hint" style={{margin:"4px 0 0"}}>Treść karty zostanie przesłana do usługi AI (Anthropic), żeby odczytać z niej dane. Serwer narzędzia nie zapisuje treści karty.</p>
+          </div>
+        )}
         <input ref={kartaInputRef} type="file" accept=".docx" style={{display:"none"}}
           onChange={e => { if (e.target.files[0]) onKartaFile(e.target.files[0]); e.target.value=""; }} />
-        <button onClick={()=>kartaInputRef.current.click()}>Wybierz plik karty (.docx)</button>
+        <button disabled={busy} onClick={()=>kartaInputRef.current.click()}>Wybierz plik karty (.docx)</button>
+
+        {busy && (
+          <div style={{marginTop:14}} role="status" aria-live="polite">
+            <div className="flex-between"><strong>Odczytuję kartę…</strong><span className="muted">{elapsed} s</span></div>
+            <div className="progress-indeterminate"/>
+            <p className="hint" style={{margin:"6px 0 0"}}>Zwykle trwa to 10–40 sekund.</p>
+          </div>
+        )}
+
+        {fallbackMsg && <div className="banner warn" style={{marginTop:14, marginBottom:0}}>{fallbackMsg}</div>}
 
         {kartaImport && kartaImport.failed && (
           <div className="banner warn" style={{marginTop:14}}>
@@ -1594,8 +2027,16 @@ function DaneProjektu({project, setField, kartaInputRef, onKartaFile, kartaImpor
             <strong>Zastosowano dane z pliku „{kartaImport.fileName}”:</strong>{" "}
             {kartaImport.fieldsCount} pól metryczki, {kartaImport.groupsAdded} nowych grup,{" "}
             {kartaImport.milestonesAdded} nowych etapów/kamieni milowych, {kartaImport.benefitsCount} korzyści biznesowych.
+            {methodLabel && <div style={{marginTop:6}} className="muted">{methodLabel}</div>}
             {canUndoKarta && <div style={{marginTop:8}}><button className="small" onClick={onUndoKarta}>Cofnij import</button></div>}
           </div>
+        )}
+
+        {kartaImport && !kartaImport.failed && kartaImport.ai && (
+          <KartaAiDetails ai={kartaImport.ai} onApplyPending={onApplyPending}/>
+        )}
+        {kartaImport && !kartaImport.failed && kartaImport.compare && (
+          <KartaAiComparePilot compare={kartaImport.compare}/>
         )}
       </div>
 
