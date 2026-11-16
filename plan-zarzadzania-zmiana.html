@@ -15,6 +15,9 @@
     --line:#dde0ea; --muted:#4A5278; --accent:#006EFA; --accent-soft:#e7f1ff; --accent2:#BABDCC;
     --red:#9c261e; --red-bg:#fdeceb; --orange:#8a4f00; --orange-bg:#fdf0dc;
     --green:#1a5c33; --green-bg:#e7f5ec;
+    /* v2.5: fiolet = „to pochodzi od AI i czeka na Twoją decyzję" — WYŁĄCZNIE dla elementów AI.
+       Kontrast: --ai na --ai-bg 7,2:1, na białym 8,2:1 (WCAG AA dla małego tekstu). */
+    --ai:#6B2FA3; --ai-bg:#F4EEFB; --ai-line:#CDB8E8;
   }
   *{box-sizing:border-box;}
   body{margin:0;font:16px/1.55 'Inter',-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;color:var(--ink);background:var(--paper);}
@@ -77,26 +80,40 @@
   .progress-indeterminate{position:relative;height:6px;background:var(--accent-soft);border-radius:3px;overflow:hidden;margin-top:8px;}
   .progress-indeterminate::before{content:"";position:absolute;top:0;left:-40%;width:40%;height:100%;background:var(--accent);border-radius:3px;animation:pzz-indeterminate 1.4s ease-in-out infinite;}
   @keyframes pzz-indeterminate{0%{left:-40%;}100%{left:100%;}}
+  .progress-indeterminate.ai{background:var(--ai-bg);}
+  .progress-indeterminate.ai::before{background:var(--ai);}
   .ai-details{margin-top:10px;font-size:14.5px;}
-  .ai-section{border:1px solid var(--line);border-radius:8px;padding:10px 14px;margin-top:10px;background:#fff;}
+  .ai-section{border:1px solid var(--ai-line);border-radius:8px;padding:10px 14px;margin-top:10px;background:#fff;}
   .ai-section.ai-pending{border-left:3px solid var(--orange);}
-  .ai-section-title{font-weight:700;color:var(--ink);margin-bottom:6px;}
+  .ai-section-title{font-weight:700;color:var(--ai);margin-bottom:6px;}
+  /* „Nie znaleziono w karcie – sprawdź" zostaje pomarańczowe: to „wymaga sprawdzenia", nie propozycja AI */
+  .ai-section.ai-pending .ai-section-title{color:var(--orange);}
+  .ai-method{color:var(--ai);font-weight:600;}
   summary.ai-section-title{cursor:pointer;margin-bottom:0;}
   details[open] > summary.ai-section-title{margin-bottom:8px;}
   .ai-section ul{margin:0;padding-left:18px;}
   .ai-subtitle{font-size:12.5px;font-weight:800;text-transform:uppercase;letter-spacing:.03em;color:var(--muted);margin:12px 0 4px;}
   .ai-row{padding:6px 0;border-top:1px solid var(--line);}
-  .ai-quote summary{cursor:pointer;font-size:13px;color:var(--accent);margin-top:2px;}
+  .ai-quote summary{cursor:pointer;font-size:13px;color:var(--ai);margin-top:2px;}
   .ai-quote blockquote{margin:4px 0 2px;padding:6px 10px;border-left:3px solid var(--line);background:var(--paper);font-size:13.5px;color:var(--ink-soft);white-space:pre-wrap;}
   /* v2.4: globalny przełącznik funkcji AI i propozycje AI przy danych */
-  .ai-bar{background:#e9ecf6;border-bottom:1px solid var(--line);padding:8px 20px;font-size:13.5px;color:var(--ink-soft);display:flex;flex-wrap:wrap;gap:4px 14px;align-items:center;}
-  .ai-bar label{display:flex;gap:7px;align-items:center;font-weight:700;color:var(--ink);cursor:pointer;margin:0;}
+  .ai-bar{background:var(--ai-bg);border-bottom:1px solid var(--ai-line);padding:8px 20px;font-size:13.5px;color:var(--ink-soft);display:flex;flex-wrap:wrap;gap:4px 14px;align-items:center;}
+  .ai-bar label{display:flex;gap:7px;align-items:center;font-weight:700;color:var(--ai);cursor:pointer;margin:0;}
+  .ai-bar input{accent-color:var(--ai);}
   .ai-bar .ai-bar-note{flex:1 1 360px;}
-  .badge.ai{background:var(--accent-soft);color:var(--accent);font-size:12.5px;padding:2px 9px;}
+  /* wyłączone funkcje AI: pasek zostaje (żeby dało się je włączyć), ale neutralny — bez fioletu */
+  .ai-bar.off{background:#eceef3;border-bottom-color:var(--line);}
+  .ai-bar.off label{color:var(--ink);}
+  .ai-bar.off input{accent-color:auto;}
+  .badge.ai{background:var(--ai-bg);color:var(--ai);font-size:12.5px;padding:2px 9px;}
   .ai-action{margin-top:10px;}
   .ai-action .ai-action-note{font-size:13.5px;color:var(--muted);margin-top:4px;}
+  /* przycisk uruchamiający AI: wariant obrysowany + pigułka „AI" (kolor nie jest jedynym nośnikiem znaczenia) */
+  button.ai-btn{background:#fff;border-color:var(--ai);color:var(--ai);font-weight:600;display:inline-flex;align-items:center;gap:7px;}
+  button.ai-btn.busy{background:var(--ai-bg);}
+  .ai-pill{display:inline-block;background:var(--ai);color:#fff;font-size:11px;font-weight:800;letter-spacing:.04em;padding:1px 7px;border-radius:10px;line-height:1.5;}
   .ai-error{font-size:13.5px;color:var(--red);margin-top:6px;}
-  .ai-prop{border:1px dashed var(--accent);background:#f6f9ff;border-radius:8px;padding:8px 12px;margin-top:8px;font-size:14px;}
+  .ai-prop{border:1px solid var(--ai-line);border-left:3px solid var(--ai);background:var(--ai-bg);border-radius:8px;padding:8px 12px;margin-top:8px;font-size:14px;}
   .ai-prop .ai-prop-head{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
   .ai-prop .ai-prop-why{color:var(--ink-soft);margin-top:4px;}
   .ai-prop .ai-prop-buttons{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;}
@@ -114,6 +131,127 @@
   dialog{border:none;border-radius:10px;padding:0;max-width:520px;width:92vw;}
   dialog .inner{padding:20px;}
   dialog::backdrop{background:rgba(15,32,39,.45);}
+  /* ---------- v2.5: Pulpit — cały plan na jednym ekranie ---------- */
+  .pulpit .card h2.pz-h{font-size:16.5px;margin:0 0 10px;}
+  .pz-head-row{display:flex;flex-wrap:wrap;align-items:center;gap:6px 14px;}
+  .pz-head-row h2{margin:0;}
+  .pz-head-row .pz-print{margin-left:auto;}
+  .pz-meta{display:flex;flex-wrap:wrap;gap:4px 22px;margin-top:8px;font-size:14.5px;}
+  .pz-count{font-size:16px;}
+  .pz-stepbar{display:flex;gap:4px;margin:2px 0 12px;}
+  .pz-stepbar span{flex:1;height:8px;border-radius:4px;background:#e4e7ea;}
+  .pz-stepbar span.ok{background:var(--green);}
+  .pz-steps{list-style:none;margin:0;padding:0;columns:2;column-gap:28px;font-size:14.5px;}
+  .pz-steps li{break-inside:avoid;padding:3px 0 3px 22px;text-indent:-22px;}
+  .pz-mark{display:inline-block;width:22px;text-indent:0;font-weight:800;}
+  .pz-steps li.ok .pz-mark{color:var(--green);}
+  .pz-steps li.no .pz-mark{color:var(--red);}
+  a.pz-go{color:var(--accent);text-decoration:none;font-weight:600;}
+  a.pz-go:hover{text-decoration:underline;}
+  .pz-grid3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;margin-bottom:16px;}
+  .pz-grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin-bottom:16px;}
+  .pz-grid3 > .card,.pz-grid2 > .card{margin-bottom:0;}
+  .pz-empty{color:var(--muted);font-size:14.5px;margin:0;}
+  .pz-note{color:var(--muted);font-size:13px;margin:8px 0 0;}
+  .pz-line{font-size:14.5px;margin:8px 0 4px;}
+  .pz-big{font-size:15px;margin:0 0 8px;}
+  .pz-pct{display:flex;flex-wrap:wrap;gap:6px 16px;align-items:center;}
+  .pz-tri{flex:0 0 170px;margin:0 auto;}
+  .pz-pct-table{flex:1 1 200px;}
+  .pz-pct .pz-note{flex:1 1 100%;margin-top:0;}
+  table.pz-table{font-size:14px;}
+  table.pz-table th,table.pz-table td{padding:6px 5px;}
+  .pz-num{text-align:right !important;white-space:nowrap;}
+  .pz-weak td{font-weight:800;}
+  .pz-weak-tag{font-weight:600;color:var(--red);font-size:12.5px;}
+  .pz-up{color:var(--green);font-weight:700;}
+  .pz-down{color:var(--red);font-weight:700;}
+  .pz-same{color:var(--muted);}
+  /* mapa ADKAR: na ekranie nazwa roli nad komórkami (wąski panel), na wydruku w jednym wierszu */
+  .pz-heat-row{display:grid;grid-template-columns:repeat(5,36px);gap:4px;align-items:center;margin-bottom:8px;}
+  .pz-heat-label{grid-column:1/-1;font-size:13.5px;font-weight:700;}
+  .pz-heat-head{margin-bottom:2px;}
+  .pz-heat-head .pz-heat-label{display:none;}
+  .pz-heat-col{text-align:center;font-size:13px;font-weight:800;}
+  .pz-sub{font-size:12px;font-weight:400;}
+  .pz-cell{display:flex;align-items:center;justify-content:center;width:36px;height:30px;border-radius:5px;font-weight:700;border:2px solid transparent;}
+  .pz-cell.red{background:var(--red-bg);color:var(--red);}
+  .pz-cell.orange{background:var(--orange-bg);color:var(--orange);}
+  .pz-cell.green{background:var(--green-bg);color:var(--green);}
+  .pz-cell.gray{background:#e4e7ea;color:var(--muted);}
+  .pz-cell.barrier{border-color:var(--ink);font-weight:900;}
+  .pz-stack{display:flex;gap:2px;height:24px;border-radius:5px;overflow:hidden;margin:14px 0 6px;}
+  .pz-stack .seg{display:flex;align-items:center;justify-content:center;min-width:22px;font-size:12.5px;font-weight:700;color:#fff;}
+  .st-0{background:var(--accent2);} .pz-stack .seg.st-0{color:var(--ink);}
+  .st-1{background:var(--accent);} .st-2{background:var(--orange);} .st-3{background:var(--red);} .st-4{background:var(--green);}
+  .pz-legend-list{list-style:none;padding:0;margin:0 0 6px;font-size:13px;display:flex;flex-wrap:wrap;gap:2px 12px;}
+  .pz-legend-list .sw{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;}
+  .pz-warn{color:var(--red);font-weight:700;font-size:14px;margin-top:6px;}
+  .pz-ai-line{color:var(--ai);font-size:13.5px;font-weight:600;margin-top:4px;}
+  .pz-uncovered td{background:var(--red-bg);color:var(--red);font-weight:700;}
+  .pz-dim td{color:var(--muted);}
+  .pz-fix{margin-top:4px;white-space:nowrap;}
+  a.pz-go.pz-overdue{display:block;color:var(--red);font-weight:800;margin-bottom:8px;}
+  .pz-dates{list-style:none;padding:0;margin:0;}
+  .pz-dates li{display:grid;grid-template-columns:92px minmax(0,1fr);gap:0 10px;padding:7px 0;border-bottom:1px solid var(--line);font-size:14px;}
+  .pz-dates li:last-child{border-bottom:none;}
+  .pz-date{font-weight:700;grid-row:span 2;}
+  .pz-who{font-size:13px;}
+  .pz-attn{list-style:none;padding:0;margin:0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px 24px;font-size:14.5px;}
+  .banner.pz-ok{background:var(--green-bg);color:var(--green);font-weight:700;margin:0;}
+  .pz-guide{margin:4px 0 0;}
+  @media (max-width:760px){
+    .pz-grid3,.pz-grid2{grid-template-columns:1fr;}
+    .pz-steps{columns:1;}
+    .pz-attn{grid-template-columns:1fr;}
+    .pz-head-row .pz-print{margin-left:0;}
+  }
+  /* Wydruk pulpitu (A4) — tylko treść pulpitu, bez nawigacji, przycisków i paska AI */
+  @media print{
+    @page{size:A4;margin:12mm;}
+    *{-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+    body{background:#fff;font-size:12px;}
+    header.app,nav.tabs,.ai-bar,footer.app,button,.pz-arrow,.pz-guide{display:none !important;}
+    main{max-width:none;padding:0;}
+    .card{box-shadow:none;border-color:#c9cdd8;padding:10px 12px;margin-bottom:8px;break-inside:avoid;page-break-inside:avoid;}
+    .pz-grid3,.pz-grid2{display:block;margin:0;}
+    .pz-grid3 > .card,.pz-grid2 > .card{margin-bottom:6px;}
+    .card{padding:7px 11px;margin-bottom:6px;}
+    .pulpit .card h2.pz-h{font-size:12.5px;margin-bottom:4px;}
+    .pz-head-row h2{font-size:15px;}
+    .pz-head-row .badge,.badge{font-size:10px;padding:1px 7px;}
+    .pz-meta{margin-top:3px;gap:2px 16px;}
+    .pz-steps,.pz-attn,.pz-pct-table,.pz-dates li,table.pz-table,.pz-meta,.pz-line,.pz-big,.pz-warn,.pz-ai-line,.pz-empty{font-size:10.5px;}
+    .pz-note,.pz-legend-list,.pz-who,.pz-sub,.pz-weak-tag{font-size:9.5px;}
+    .pz-note{margin-top:3px;}
+    .pz-line{margin:3px 0 2px;}
+    .pz-stepbar{margin:0 0 5px;}
+    .pz-stepbar span{height:5px;}
+    /* A4 ma ~700 px szerokości — reguła dla wąskiego ekranu (≤760 px) nie może tu rozciągać list na jedną kolumnę */
+    .pz-steps{columns:2;}
+    .pz-attn{grid-template-columns:repeat(2,minmax(0,1fr));}
+    #root > div[style*="position: fixed"]{display:none !important;}
+    .pulpit{line-height:1.35;}
+    .pz-steps li{padding:1px 0 1px 18px;text-indent:-18px;}
+    .pz-mark{width:18px;}
+    .pz-pct{gap:2px 14px;}
+    .pz-tri{flex:0 0 105px;}
+    table.pz-table th,table.pz-table td{padding:2px 4px;}
+    table.pz-table th{font-size:9.5px;}
+    .pz-heat-row{grid-template-columns:230px repeat(5,26px);gap:3px;margin-bottom:3px;}
+    .pz-heat-label{grid-column:auto;font-size:10.5px;}
+    .pz-heat-head .pz-heat-label{display:block;}
+    .pz-heat-col{font-size:10px;}
+    .pz-cell{width:26px;height:18px;font-size:10.5px;}
+    .pz-stack{height:15px;margin:5px 0 3px;}
+    .pz-stack .seg{font-size:9.5px;}
+    .pz-dates li{grid-template-columns:70px minmax(0,1fr);padding:2px 0;}
+    a.pz-go.pz-overdue{margin-bottom:3px;}
+    .pz-attn{gap:1px 20px;}
+    .banner.pz-ok{padding:6px 10px;font-size:10.5px;}
+    a.pz-go{color:inherit;font-weight:600;}
+    a.pz-go.pz-overdue{color:var(--red);}
+  }
 </style>
 </head>
 <body>
@@ -2103,7 +2241,7 @@ function App(){
       </header>
 
       {AI_AVAILABLE && (
-        <div className="ai-bar">
+        <div className={"ai-bar" + (aiEnabled ? "" : " off")}>
           <label>
             <input type="checkbox" checked={aiEnabled} disabled={aiAnyBusy}
               onChange={e => setAiEnabled(e.target.checked)} />
@@ -2153,9 +2291,8 @@ function App(){
           ai={aiProps}
         />}
         {tab==="pulpit" && canSeePlanPulpit && <Pulpit
-          project={state.project} level={level} surveyTotal={surveyTotal}
-          pctAvg={pctAvg} pctWeakestAreas={pctWeakestAreas}
-          statusCounts={statusCounts} signals={signals}
+          state={state} level={level} surveyTotal={surveyTotal}
+          categoryBarrier={categoryBarrier} aiOn={aiOn}
           goTo={setTab}
         />}
         {tab==="przewodnik" && <Przewodnik/>}
@@ -2185,7 +2322,7 @@ function App(){
 
       {toast && <div style={{position:"fixed", bottom:16, right:16, maxWidth:360, background:"var(--ink)", color:"#fff", padding:"10px 16px", borderRadius:8, fontSize:13}}>{toast}</div>}
 
-      <footer className="app">Plan Zarządzania Zmianą · Grupa Merito · wersja robocza · v2.4</footer>
+      <footer className="app">Plan Zarządzania Zmianą · Grupa Merito · wersja robocza · v2.5</footer>
     </React.Fragment>
   );
 }
@@ -2205,8 +2342,8 @@ function AiActionButton({label, onClick, disabled, busySince, error, note}){
   const elapsed = busySince ? Math.max(0, Math.round((now - busySince) / 1000)) : 0;
   return (
     <div className="ai-action">
-      <button className="small" disabled={disabled || !!busySince} onClick={onClick}>
-        {busySince ? ("Pracuję… " + elapsed + " s") : label}
+      <button className={"small ai-btn" + (busySince ? " busy" : "")} disabled={disabled || !!busySince} onClick={onClick}>
+        <span className="ai-pill">AI</span>{" "}{busySince ? ("Pracuję… " + elapsed + " s") : label}
       </button>
       {note && <div className="ai-action-note">{note}</div>}
       {error && !busySince && (
@@ -2397,7 +2534,7 @@ function DaneProjektu({project, setField, kartaInputRef, onKartaFile, kartaImpor
         {busy && (
           <div style={{marginTop:14}} role="status" aria-live="polite">
             <div className="flex-between"><strong>Odczytuję kartę…</strong><span className="muted">{elapsed} s</span></div>
-            <div className="progress-indeterminate"/>
+            <div className="progress-indeterminate ai"/>
             <p className="hint" style={{margin:"6px 0 0"}}>Zwykle trwa to 10–40 sekund.</p>
           </div>
         )}
@@ -2417,7 +2554,7 @@ function DaneProjektu({project, setField, kartaInputRef, onKartaFile, kartaImpor
             <strong>Zastosowano dane z pliku „{kartaImport.fileName}”:</strong>{" "}
             {kartaImport.fieldsCount} pól metryczki, {kartaImport.groupsAdded} nowych grup,{" "}
             {kartaImport.milestonesAdded} nowych etapów/kamieni milowych, {kartaImport.benefitsCount} korzyści biznesowych.
-            {methodLabel && <div style={{marginTop:6}} className="muted">{methodLabel}</div>}
+            {methodLabel && <div style={{marginTop:6}} className={kartaImport.method === "ai" ? "ai-method" : "muted"}>{methodLabel}</div>}
             {canUndoKarta && <div style={{marginTop:8}}><button className="small" onClick={onUndoKarta}>Cofnij import</button></div>}
           </div>
         )}
@@ -2596,7 +2733,9 @@ function Checklisty({level, checklist, toggle}){
 // którego długość mogłaby to pokazać. `scores` to obiekt {obszar: liczba|null} — dokładnie to, co
 // zwraca pctScores i co dostaje computeWeakestPctAreas, więc wykres zawsze pokazuje to samo, co
 // baner tekstowy nad/pod nim.
-function PctTriangle({scores, weakestKeys}){
+// v2.5: `compact` (Pulpit) — bez podpisów obszarów i bez podpowiedzi pod wykresem (podpisy i wyniki
+// są w tabeli obok), widok przycięty do samego trójkąta. Bez `compact` wykres wygląda jak dotąd.
+function PctTriangle({scores, weakestKeys, compact}){
   const size = 400, center = size/2, radius = 130, labelR = radius + 46;
   const areaOrder = ["przywodztwo", "zarzadzanieZmiana", "zarzadzanieProjektem"];
   const angles = {przywodztwo: -90, zarzadzanieZmiana: 30, zarzadzanieProjektem: 150};
@@ -2618,7 +2757,7 @@ function PctTriangle({scores, weakestKeys}){
   const centerRadius = 11 + (centerVal!=null ? (Math.max(0,Math.min(30,centerVal))/30)*13 : 0);
   return (
     <div>
-      <svg viewBox={"0 0 "+size+" "+size} style={{width:"100%", maxWidth:400, display:"block", margin:"0 auto"}}>
+      <svg viewBox={compact ? "70 55 260 230" : "0 0 "+size+" "+size} style={{width:"100%", maxWidth: compact ? 200 : 400, display:"block", margin:"0 auto"}}>
         {[1/3, 2/3, 1].map(frac => {
           const pts = areaOrder.map(k => vertexAt(k, frac).join(",")).join(" ");
           return <polygon key={frac} points={pts} fill="none" stroke="#BABDCC" strokeWidth="1"/>;
@@ -2639,7 +2778,7 @@ function PctTriangle({scores, weakestKeys}){
               stroke={v==null ? "#BABDCC" : "#141E50"} strokeWidth={v==null ? 1 : 1.5}/>
           );
         })}
-        {areaOrder.map(k => {
+        {!compact && areaOrder.map(k => {
           const [lx,ly] = vertexAt(k, labelR/radius);
           const a = areaByKey[k];
           const lines = a.label.replace(" / ", " ").split(" ");
@@ -2663,12 +2802,14 @@ function PctTriangle({scores, weakestKeys}){
             {Math.round(centerVal)}
           </text>
         )}
-        <text x={center} y={center+centerRadius+16} textAnchor="middle" fontSize="11"
-          fontWeight={isCenterWeakest ? 700 : 500} fill={isCenterWeakest ? "#D64545" : "#141E50"}>
-          Definicja sukcesu
-        </text>
+        {!compact && (
+          <text x={center} y={center+centerRadius+16} textAnchor="middle" fontSize="11"
+            fontWeight={isCenterWeakest ? 700 : 500} fill={isCenterWeakest ? "#D64545" : "#141E50"}>
+            Definicja sukcesu
+          </text>
+        )}
       </svg>
-      {!allScored && (
+      {!compact && !allScored && (
         <p className="hint" style={{textAlign:"center"}}>
           {anyScored ? "Uzupełnij pytania każdego obszaru, aby wykres pokazał pełny wynik." : "Odpowiedz na pytania poniżej, aby zobaczyć wynik na wykresie."}
         </p>
@@ -2734,7 +2875,7 @@ function Diagnoza({state, pctAvg, pctWeakestAreas, pctLatestScores, showPct, set
                 </div>
                 {ai && isLast && (
                   <div style={{marginBottom:14}}>
-                    <AiActionButton label="Zaproponuj odpowiedzi na podstawie karty (AI)"
+                    <AiActionButton label="Zaproponuj odpowiedzi na podstawie karty"
                       onClick={ai.proposePct} busySince={ai.busy.pct} error={ai.errors.pct}
                       note="AI odpowiada tylko na pytania sprawdzalne w danych z karty i narzędzia. Pozostałe ocenisz sam."/>
                     {pctOpenIds.length > 0 && (
@@ -2837,7 +2978,7 @@ function Diagnoza({state, pctAvg, pctWeakestAreas, pctLatestScores, showPct, set
         )}
         {ai && missingCategory > 0 && (
           <div style={{marginBottom:10}}>
-            <AiActionButton label="Zaproponuj role (AI)" onClick={ai.proposeRoles}
+            <AiActionButton label="Zaproponuj role" onClick={ai.proposeRoles}
               busySince={ai.busy.roles} error={ai.errors.roles}/>
             {roleAcceptIds.length > 0 && (
               <div style={{marginTop:8}}>
@@ -2953,7 +3094,7 @@ function Diagnoza({state, pctAvg, pctWeakestAreas, pctLatestScores, showPct, set
         })}
         {ai && adkarVisibleCategories.length > 0 && (
           <div>
-            <AiActionButton label="Sprawdź moje oceny (AI)" onClick={ai.checkAdkar}
+            <AiActionButton label="Sprawdź moje oceny" onClick={ai.checkAdkar}
               disabled={!adkarCheckable} busySince={ai.busy.adkar} error={ai.errors.adkar}
               note={"AI nie ocenia za Ciebie – wskazuje tylko miejsca, w których oceny mogą nie pasować do opisu zmiany."
                 + (adkarCheckable ? "" : " Przycisk zadziała, gdy ocenisz wszystkie pięć obszarów co najmniej jednej roli.")}/>
@@ -3022,7 +3163,7 @@ function PlanDzialan({actionsByCategory, categoryBarrier, groups, addAction, upd
                 <a className="ex-link" href={ADKAR_KAFETERIA_URL} target="_blank" rel="noopener noreferrer">Potrzebujesz więcej pomysłów? Zajrzyj do kafeterii działań (ADKAR, PCT)</a>
                 <span className="ex-note">— dokument otwiera się w SharePoincie Grupy Merito i wymaga zalogowania na konto firmowe; to osobna strona, nie część tego narzędzia (które działa offline, z dysku).</span>
                 {ai && (
-                  <AiActionButton label="Zaproponuj działania dla tego projektu (AI)" onClick={() => ai.proposeActions(c.id)}
+                  <AiActionButton label="Zaproponuj działania dla tego projektu" onClick={() => ai.proposeActions(c.id)}
                     busySince={ai.busy["actions:" + c.id]} error={ai.errors["actions:" + c.id]}/>
                 )}
                 {ai && (ai.proposals.actions[c.id] || []).map(p => {
@@ -3099,66 +3240,470 @@ function PlanDzialan({actionsByCategory, categoryBarrier, groups, addAction, upd
   );
 }
 
-function Pulpit({project, level, surveyTotal, pctAvg, pctWeakestAreas, statusCounts, signals, goTo}){
-  const wipOver = statusCounts["W realizacji"] > MAX_WIP_ACTIONS;
+/* ---------- v2.5: Pulpit — wyliczenia (czyste funkcje; pulpit niczego nie zapisuje) ---------- */
+
+// Dzisiejsza data "YYYY-MM-DD" w strefie LOKALNEJ przeglądarki (toISOString dałby UTC — tuż po
+// północy czasu polskiego byłoby jeszcze „wczoraj").
+function localTodayISO(d = new Date()){
+  const p = n => String(n).padStart(2, "0");
+  return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate());
+}
+const isIsoDate = s => typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s);
+function formatDatePl(iso){
+  return isIsoDate(iso) ? iso.slice(8, 10) + "." + iso.slice(5, 7) + "." + iso.slice(0, 4) : (iso || "");
+}
+function plural(n, one, few, many){
+  const m10 = n % 10, m100 = n % 100;
+  if (n === 1) return one;
+  if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return few;
+  return many;
+}
+// Krótka nazwa roli do ciasnych miejsc (pełna w podpowiedzi): "Bezpośredni przełożeni — usuwają…" → "Bezpośredni przełożeni".
+function shortRoleLabel(catId){
+  const c = CATEGORIES.find(x => x.id === catId);
+  return c ? c.label.split(" — ")[0].split(" (")[0] : "bez roli";
+}
+function truncateText(t, n){
+  const s = (t || "").trim();
+  return s.length > n ? s.slice(0, n - 1).trimEnd() + "…" : s;
+}
+// Progi oceny ADKAR — te same co w „ADKAR — szybki skan" i w legendzie Diagnozy:
+// 1–2 czerwony, 3 pomarańczowy, 4–5 zielony, brak oceny szary.
+function adkarTone(v){
+  if (v == null || v === "") return "gray";
+  const n = Number(v);
+  return n <= 2 ? "red" : n === 3 ? "orange" : "green";
+}
+const adkarRated = v => v !== null && v !== undefined && v !== "";
+const rolesWithGroups = groups => CATEGORIES.filter(c => groups.some(g => g.categoryId === c.id));
+const roleAdkarComplete = (adkarByCategory, catId) => ADKAR_DIMS.every(dim => adkarRated((adkarByCategory[catId] || {})[dim.id]));
+const pctCheckpointComplete = p => !!p && !!p.answers && PCT_AREAS.every(a => Array.isArray(p.answers[a.key]) && p.answers[a.key].every(v => v != null));
+const actionNoOwner = a => !(a.odpowiedzialny || "").trim();
+const actionNoDate = a => !(a.termin || "").trim() && !(a.kamien || "").trim();
+
+// Po terminie = termin (pole typu date, "YYYY-MM-DD") wcześniejszy niż dziś i status inny niż „Zrealizowane".
+//   isActionOverdue({termin:"2026-11-15", status:"W realizacji"}, "2026-11-16")   → true
+//   isActionOverdue({termin:"2026-11-15", status:"Zrealizowane"}, "2026-11-16")   → false
+//   isActionOverdue({termin:"2026-11-16", status:"W realizacji"}, "2026-11-16")   → false (dziś to jeszcze nie po terminie)
+//   isActionOverdue({termin:"", kamien:"Rollout", status:"Do zaplanowania"}, …)  → false (bez daty)
+function isActionOverdue(a, today){
+  return isIsoDate(a.termin) && a.termin < today && a.status !== "Zrealizowane";
+}
+
+// Najbliższe terminy: do `limit` działań z terminem dziś lub później i statusem innym niż „Zrealizowane", rosnąco.
+//   upcomingActions([{termin:"2026-12-01", status:"Do zaplanowania"}, {termin:"2026-11-20", status:"W realizacji"},
+//                    {termin:"2026-11-18", status:"Zrealizowane"},   {termin:"2026-11-10", status:"W realizacji"}], "2026-11-16")
+//   → [termin "2026-11-20", termin "2026-12-01"]   (zrealizowane i po terminie pominięte)
+function upcomingActions(actions, today, limit = 5){
+  return actions
+    .filter(a => isIsoDate(a.termin) && a.termin >= today && a.status !== "Zrealizowane")
+    .slice().sort((x, y) => x.termin < y.termin ? -1 : x.termin > y.termin ? 1 : 0)
+    .slice(0, limit);
+}
+
+// Bariery a działania — kluczowe pytanie metody: czy na każdą barierę jest odpowiedź (≥ 1 działanie w roli).
+// `barrierOf(catId)` = categoryBarrier z App (reguła bariery bez zmian).
+//   wejście: rola „kierunek" bez istotnej bariery, 2 działania (1 zrealizowane);
+//            rola „nowezasady" z barierą Desire, 0 działań
+//   wynik:   [{id:"kierunek",   barrier:{status:"ready"},                actions:2, done:1, uncovered:false},
+//             {id:"nowezasady", barrier:{status:"barrier", dims:[Desire]}, actions:0, done:0, uncovered:true}]
+function barriersVsActions(groups, actions, barrierOf){
+  return rolesWithGroups(groups).map(c => {
+    const own = actions.filter(a => a.categoryId === c.id);
+    const barrier = barrierOf(c.id);
+    return {
+      id: c.id, label: c.label, groupsCount: groups.filter(g => g.categoryId === c.id).length, barrier,
+      actions: own.length, done: own.filter(a => a.status === "Zrealizowane").length,
+      uncovered: barrier.status === "barrier" && own.length === 0,
+    };
+  });
+}
+
+// Mapa cieplna ADKAR: wiersz = rola z grupami, komórka = ocena + ton; `barrier` = komórka uznana za barierę
+// przez categoryBarrier (przy remisie 3+ wymiarów — jak w Diagnozie — tylko pierwszy).
+//   wejście: rola „nowezasady" {awareness:4, desire:2, knowledge:2, ability:3, reinforcement:null}
+//   wynik:   cells = [4 green, 2 red bariera, 2 red bariera, 3 orange, – gray]
+function adkarHeatmap(groups, adkarByCategory, barrierOf){
+  const rows = rolesWithGroups(groups).map(c => {
+    const d = adkarByCategory[c.id] || {};
+    const b = barrierOf(c.id);
+    const barrierIds = b.status === "barrier" ? b.dims.map(x => x.id) : [];
+    return {
+      id: c.id, label: c.label, groupsCount: groups.filter(g => g.categoryId === c.id).length,
+      cells: ADKAR_DIMS.map(dim => {
+        const v = adkarRated(d[dim.id]) ? Number(d[dim.id]) : null;
+        return {dim: dim.id, label: dim.label, value: v, tone: adkarTone(v), barrier: barrierIds.includes(dim.id)};
+      }),
+    };
+  });
+  return {rows, anyRated: rows.some(r => r.cells.some(x => x.value != null))};
+}
+
+// PCT na pulpicie: ostatni WYPEŁNIONY pomiar (jak dotąd w pulpicie i trójkącie) + zmiana względem poprzedniego
+// KOMPLETNEGO pomiaru — strzałki tylko wtedy, gdy oba pomiary są kompletne (24 odpowiedzi).
+//   wejście: pomiar 1 kompletny (Definicja sukcesu 21/30), pomiar 2 kompletny (24/30), pomiar 3 pusty
+//   wynik:   scores z pomiaru 2, deltas.definicjaSukcesu = 3   (↑ 3)
+//   wejście: pomiar 1 kompletny, pomiar 2 częściowy → deltas = null (nie porównujemy niepełnego z pełnym)
+function pctPanelData(history){
+  let idx = -1;
+  for (let i = history.length - 1; i >= 0; i--){
+    const sc = pctScores(history[i]);
+    if (PCT_AREAS.some(a => sc[a.key] != null)){ idx = i; break; }
+  }
+  if (idx < 0) return null;
+  const latest = history[idx];
+  const scores = pctScores(latest);
+  let deltas = null;
+  if (pctCheckpointComplete(latest)){
+    for (let i = idx - 1; i >= 0; i--){
+      if (!pctCheckpointComplete(history[i])) continue;
+      const prev = pctScores(history[i]);
+      deltas = {};
+      PCT_AREAS.forEach(a => { deltas[a.key] = Math.round(scores[a.key] - prev[a.key]); });
+      break;
+    }
+  }
+  return {
+    scores, deltas, weakestKeys: computeWeakestPctAreas(scores).map(a => a.key),
+    improvements: (latest.dzialaniaUsprawniajace || []).filter(s => (s || "").trim()).length,
+  };
+}
+
+// Kolejny przegląd: data z najnowszego pomiaru PCT, w którym ją wpisano; po terminie = wcześniejsza niż dziś.
+//   nextReviewInfo([{kolejnyPrzeglad:"2026-11-10"}, {kolejnyPrzeglad:""}], "2026-11-16") → {date:"2026-11-10", overdue:true}
+//   nextReviewInfo([{kolejnyPrzeglad:""}], …)                                            → null (nie ustalono)
+function nextReviewInfo(history, today){
+  for (let i = history.length - 1; i >= 0; i--){
+    const d = (history[i].kolejnyPrzeglad || "").trim();
+    if (d) return {date: d, overdue: isIsoDate(d) && d < today};
+  }
+  return null;
+}
+
+// Plan działań: postęp, rozkład statusów w stałej kolejności STATUS_OPTIONS, WIP, harmonogram, działania z AI.
+//   wejście: 4 działania — 2× „Zrealizowane", 1× „W realizacji", 1× „Zablokowane" (z propozycji AI), 3 w harmonogramie
+//   wynik:   {all:4, done:2, pctDone:50, byStatus:[0,1,0,1,2], wip:1, wipOver:false, added:3, pctAdded:75, fromAi:1}
+function planProgress(actions){
+  const all = actions.length;
+  const done = actions.filter(a => a.status === "Zrealizowane").length;
+  const wip = actions.filter(a => a.status === "W realizacji").length;
+  const added = actions.filter(a => a.dodanoDoHarmonogramu).length;
+  return {
+    all, done, pctDone: all ? Math.round(done / all * 100) : 0,
+    byStatus: STATUS_OPTIONS.map(s => ({status: s, count: actions.filter(a => a.status === s).length})),
+    wip, wipOver: wip > MAX_WIP_ACTIONS,
+    added, pctAdded: all ? Math.round(added / all * 100) : 0,
+    fromAi: actions.filter(a => a.propozycjaAi === true).length,
+  };
+}
+
+// Gotowość planu — kroki ✓/✗; niespełniony krok prowadzi do zakładki `tab`.
+//   wejście: poziom 2, ankieta ukończona, 2 grupy z rolą „nowezasady", ADKAR komplet z barierą Desire, 0 działań
+//   wynik:   6 kroków (bez PCT): ✓ ankieta, ✓ role, ✓ ADKAR, ✗ bariery („1 rola bez działań"),
+//            ✗ odpowiedzialni/terminy („nie ma jeszcze działań"), ✗ harmonogram („nie ma jeszcze działań") → 3 z 6
+function planReadiness({level, groups, adkarByCategory, actions, pctHistory, barrierRows}){
+  const steps = [];
+  steps.push({key: "ankieta", label: "Ankieta skali zmiany ukończona", ok: !!level.complete, tab: "ankieta", detail: ""});
+  const noRole = groups.filter(g => !g.categoryId).length;
+  steps.push({key: "role", label: "Każda grupa objęta zmianą ma przypisaną rolę", tab: "diagnoza",
+    ok: groups.length > 0 && noRole === 0,
+    detail: groups.length === 0 ? "nie ma jeszcze grup" : noRole ? noRole + " " + plural(noRole, "grupa", "grupy", "grup") + " bez roli" : ""});
+  const roles = rolesWithGroups(groups);
+  const noAdkar = roles.filter(c => !roleAdkarComplete(adkarByCategory, c.id)).length;
+  steps.push({key: "adkar", label: "Każda rola z grupami ma komplet ocen ADKAR", tab: "diagnoza",
+    ok: roles.length > 0 && noAdkar === 0,
+    detail: roles.length === 0 ? "nie ma jeszcze ról z grupami" : noAdkar ? noAdkar + " " + plural(noAdkar, "rola", "role", "ról") + " bez kompletu" : ""});
+  if (level.complete && level.poziom === 3){
+    const last = pctHistory[pctHistory.length - 1];
+    const answered = last ? PCT_AREAS.reduce((n, a) => n + ((last.answers && last.answers[a.key]) || []).filter(v => v != null).length, 0) : 0;
+    const total = PCT_AREAS.reduce((n, a) => n + PCT_QUESTIONS[a.key].length, 0);
+    steps.push({key: "pct", label: "Ostatni pomiar PCT ma odpowiedzi na wszystkie pytania", tab: "diagnoza",
+      ok: pctCheckpointComplete(last), detail: pctCheckpointComplete(last) ? "" : "odpowiedzi: " + answered + " z " + total});
+  }
+  const uncovered = barrierRows.filter(r => r.uncovered).length;
+  steps.push({key: "bariery", label: "Każda rola z barierą ma co najmniej jedno działanie", tab: "plan",
+    ok: uncovered === 0, detail: uncovered ? uncovered + " " + plural(uncovered, "rola", "role", "ról") + " bez działań" : ""});
+  const incomplete = actions.filter(a => actionNoOwner(a) || actionNoDate(a)).length;
+  steps.push({key: "kompletne", label: "Każde działanie ma odpowiedzialnego i termin (albo powiązany etap)", tab: "plan",
+    ok: actions.length > 0 && incomplete === 0,
+    detail: actions.length === 0 ? "nie ma jeszcze działań" : incomplete ? incomplete + " " + plural(incomplete, "działanie", "działania", "działań") + " do uzupełnienia" : ""});
+  const notAdded = actions.filter(a => !a.dodanoDoHarmonogramu).length;
+  steps.push({key: "harmonogram", label: "Wszystkie działania są oznaczone jako dodane do harmonogramu", tab: "plan",
+    ok: actions.length > 0 && notAdded === 0,
+    detail: actions.length === 0 ? "nie ma jeszcze działań" : notAdded ? notAdded + " " + plural(notAdded, "działanie", "działania", "działań") + " poza harmonogramem" : ""});
+  return {steps, okCount: steps.filter(s => s.ok).length};
+}
+
+// Co wymaga uwagi — tylko pozycje niezerowe, każda z liczbą i zakładką.
+//   wejście: rola „nowezasady" z barierą i bez działań; rola „kierunek" z 1 działaniem bez odpowiedzialnego,
+//            termin wczoraj, status „W realizacji"
+//   wynik:   [{key:"bariery", count:1, tab:"plan"}, {key:"bezOdpowiedzialnego", count:1, tab:"plan"},
+//             {key:"poTerminie", count:1, tab:"plan"}]
+function attentionItems({groups, adkarByCategory, actions, barrierRows, today, review}){
+  const items = [
+    {key: "grupyBezRoli", label: "Grupy bez przypisanej roli", tab: "diagnoza", count: groups.filter(g => !g.categoryId).length},
+    {key: "adkar", label: "Role bez kompletu ocen ADKAR", tab: "diagnoza",
+      count: rolesWithGroups(groups).filter(c => !roleAdkarComplete(adkarByCategory, c.id)).length},
+    {key: "bariery", label: "Bariery bez działań", tab: "plan", count: barrierRows.filter(r => r.uncovered).length},
+    {key: "bezOdpowiedzialnego", label: "Działania bez odpowiedzialnego", tab: "plan", count: actions.filter(actionNoOwner).length},
+    {key: "bezTerminu", label: "Działania bez terminu i etapu", tab: "plan", count: actions.filter(actionNoDate).length},
+    {key: "zablokowane", label: "Działania zablokowane", tab: "plan", count: actions.filter(a => a.status === "Zablokowane").length},
+    {key: "poTerminie", label: "Działania po terminie", tab: "plan", count: actions.filter(a => isActionOverdue(a, today)).length},
+    {key: "przeglad", label: "Kolejny przegląd PCT po terminie" + (review ? " (" + formatDatePl(review.date) + ")" : ""), tab: "diagnoza",
+      count: review && review.overdue ? 1 : 0},
+  ];
+  return items.filter(i => i.count > 0);
+}
+
+// Wszystkie dane pulpitu w jednym miejscu (wołane z useMemo w <Pulpit>).
+function computePulpitData({state, level, barrierOf, today}){
+  const isL3 = !!level.complete && level.poziom === 3;
+  const {groups, actions, adkarByCategory, pctHistory} = state;
+  const barrierRows = barriersVsActions(groups, actions, barrierOf);
+  const review = isL3 ? nextReviewInfo(pctHistory, today) : null;
+  const checklistItems = CHECKLIST_ITEMS.filter(i => i.minPoziom <= (level.poziom || 0));
+  return {
+    isL3, review, barrierRows,
+    readiness: planReadiness({level, groups, adkarByCategory, actions, pctHistory, barrierRows}),
+    pct: isL3 ? pctPanelData(pctHistory) : null,
+    checklist: isL3 ? null : {done: checklistItems.filter(i => !!(state.checklist12 || {})[i.key]).length, total: checklistItems.length},
+    heatmap: adkarHeatmap(groups, adkarByCategory, barrierOf),
+    plan: planProgress(actions),
+    overdueCount: actions.filter(a => isActionOverdue(a, today)).length,
+    upcoming: upcomingActions(actions, today, 5),
+    attention: attentionItems({groups, adkarByCategory, actions, barrierRows, today, review}),
+  };
+}
+
+// Link-przejście do zakładki; strzałka znika na wydruku.
+function PzGo({tab, goTo, children, className}){
   return (
-    <React.Fragment>
+    <a href="#" className={"pz-go" + (className ? " " + className : "")} onClick={e => { e.preventDefault(); goTo(tab); }}>
+      {children}<span className="pz-arrow" aria-hidden="true"> →</span>
+    </a>
+  );
+}
+
+function Pulpit({state, level, surveyTotal, categoryBarrier, aiOn, goTo}){
+  const today = localTodayISO();
+  const d = useMemo(() => computePulpitData({state, level, barrierOf: categoryBarrier, today}),
+    [state, level.complete, level.poziom, today]);
+  const p = state.project;
+  const pl = d.plan;
+  return (
+    <div className="pulpit">
+      {/* A. Pasek nagłówkowy */}
+      <div className="card pz-head">
+        <div className="pz-head-row">
+          <h2>{p.nazwa || "Projekt bez nazwy"}</h2>
+          <Badge tone={level.color}>Poziom {level.poziom} · {surveyTotal} pkt</Badge>
+          <button className="small pz-print" onClick={() => window.print()}>Drukuj pulpit</button>
+        </div>
+        <div className="pz-meta">
+          {p.sponsor && <span><span className="muted">Sponsor:</span> {p.sponsor}</span>}
+          {p.cm && <span><span className="muted">Koordynator planu:</span> {p.cm}</span>}
+          <span><span className="muted">Aktualizacja planu:</span> {p.czestotliwosc || "nie ustalono"}</span>
+          {d.isL3 && (
+            <span>
+              <span className="muted">Kolejny przegląd:</span> {d.review ? formatDatePl(d.review.date) : "nie ustalono"}
+              {d.review && d.review.overdue && <React.Fragment>{" "}<Badge tone="red">po terminie</Badge></React.Fragment>}
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* B. Gotowość planu */}
       <div className="card">
-        <h2>Kontekst</h2>
-        <div className="grid cols3">
-          <div><div className="muted">Projekt / program</div><div>{project.nazwa || "–"}</div></div>
-          <div><div className="muted">Sponsor</div><div>{project.sponsor || "–"}</div></div>
-          <div><div className="muted">Typ projektu</div><div>{project.typProjektu || "–"}</div></div>
-          <div><div className="muted">Skala zmiany</div><div><Badge tone={level.color}>{level.complete ? (surveyTotal + " pkt — poziom " + level.poziom) : "ankieta nieukończona"}</Badge></div></div>
-          {level.poziom === 3 && (
+        <div className="flex-between">
+          <h2 className="pz-h">Gotowość planu</h2>
+          <strong className="pz-count">{d.readiness.okCount} z {d.readiness.steps.length}</strong>
+        </div>
+        <div className="pz-stepbar" aria-hidden="true">
+          {d.readiness.steps.map(s => <span key={s.key} className={s.ok ? "ok" : ""}/>)}
+        </div>
+        <ul className="pz-steps">
+          {d.readiness.steps.map(s => (
+            <li key={s.key} className={s.ok ? "ok" : "no"}>
+              <span className="pz-mark" aria-label={s.ok ? "spełnione" : "niespełnione"}>{s.ok ? "✓" : "✗"}</span>
+              {s.ok ? s.label : <PzGo tab={s.tab} goTo={goTo}>{s.label}</PzGo>}
+              {s.detail && <span className="muted"> – {s.detail}</span>}
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      {/* C. Trzy panele */}
+      <div className="pz-grid3">
+        {d.isL3 ? (
+          <div className="card">
+            <h2 className="pz-h">Warunki powodzenia (PCT)</h2>
+            {!d.pct ? (
+              <p className="pz-empty">Nie ma jeszcze pomiaru PCT – <PzGo tab="diagnoza" goTo={goTo}>przejdź do Diagnozy</PzGo>.</p>
+            ) : (
+              <div className="pz-pct">
+                <div className="pz-tri"><PctTriangle scores={d.pct.scores} weakestKeys={d.pct.weakestKeys} compact/></div>
+                <table className="pz-table pz-pct-table">
+                  <tbody>
+                    {PCT_AREAS.map(a => {
+                      const v = d.pct.scores[a.key];
+                      const weak = d.pct.weakestKeys.includes(a.key);
+                      const delta = d.pct.deltas ? d.pct.deltas[a.key] : null;
+                      return (
+                        <tr key={a.key} className={weak ? "pz-weak" : ""}>
+                          <td>{a.label}{weak && <span className="pz-weak-tag"> (najsłabszy)</span>}</td>
+                          <td className="pz-num"><Badge tone={pctTone(v)}>{v != null ? Math.round(v) + "/30" : "–"}</Badge></td>
+                          {d.pct.deltas && (
+                            <td className={"pz-num " + (delta > 0 ? "pz-up" : delta < 0 ? "pz-down" : "pz-same")}
+                              title="Zmiana względem poprzedniego kompletnego pomiaru">
+                              {delta > 0 ? "↑ " + delta : delta < 0 ? "↓ " + Math.abs(delta) : "= 0"}
+                            </td>
+                          )}
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+                <p className="pz-note">
+                  {d.pct.deltas ? "Strzałki: zmiana względem poprzedniego kompletnego pomiaru. " : ""}
+                  Działania usprawniające w ostatnim pomiarze: <strong>{d.pct.improvements}</strong>
+                </p>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="card">
+            <h2 className="pz-h">Checklista</h2>
+            <p className="pz-big"><strong>{d.checklist.done} z {d.checklist.total}</strong> punktów odhaczonych</p>
+            <div className="bar-track"><div className="bar-fill" style={{width: (d.checklist.total ? d.checklist.done / d.checklist.total * 100 : 0) + "%", background: "var(--green)"}}/></div>
+            {d.checklist.done < d.checklist.total && (
+              <p className="pz-note"><PzGo tab="checklisty" goTo={goTo}>Przejdź do checklisty</PzGo></p>
+            )}
+          </div>
+        )}
+
+        <div className="card">
+          <h2 className="pz-h">Gotowość grup (ADKAR)</h2>
+          {d.heatmap.rows.length === 0 ? (
+            <p className="pz-empty">Nie ma jeszcze grup z przypisaną rolą – <PzGo tab="diagnoza" goTo={goTo}>przejdź do Diagnozy</PzGo>.</p>
+          ) : !d.heatmap.anyRated ? (
+            <p className="pz-empty">Nie ma jeszcze ocen ADKAR – <PzGo tab="diagnoza" goTo={goTo}>przejdź do Diagnozy</PzGo>.</p>
+          ) : (
             <React.Fragment>
-              <div><div className="muted">PCT — średnia</div><div><Badge tone={pctTone(pctAvg)}>{pctAvg!=null?pctAvg.toFixed(1):"brak danych"}</Badge></div></div>
-              <div><div className="muted">PCT — najsłabszy obszar</div><div>{pctWeakestAreas.length ? pctWeakestAreas.map(a=>a.label).join(" i ") : "–"}</div></div>
+              <div className="pz-heat" role="table" aria-label="Oceny ADKAR według ról">
+                <div className="pz-heat-row pz-heat-head" role="row">
+                  <span className="pz-heat-label"></span>
+                  {ADKAR_DIMS.map(dim => <span key={dim.id} className="pz-heat-col" role="columnheader" title={dim.label + " — " + dim.sub}>{dim.label[0]}</span>)}
+                </div>
+                {d.heatmap.rows.map(r => (
+                  <div key={r.id} className="pz-heat-row" role="row">
+                    <div className="pz-heat-label" role="rowheader" title={r.label}>
+                      {shortRoleLabel(r.id)} <span className="muted pz-sub">· {r.groupsCount} {plural(r.groupsCount, "grupa", "grupy", "grup")}</span>
+                    </div>
+                    {r.cells.map(c => (
+                      <span key={c.dim} role="cell" className={"pz-cell " + c.tone + (c.barrier ? " barrier" : "")}
+                        title={c.label + ": " + (c.value != null ? c.value : "brak oceny") + (c.barrier ? " — bariera" : "")}>
+                        {c.value != null ? c.value : "–"}
+                      </span>
+                    ))}
+                  </div>
+                ))}
+              </div>
+              <p className="pz-note">A – Awareness · D – Desire · K – Knowledge · A – Ability · R – Reinforcement. Pogrubiona ramka = bariera.</p>
+            </React.Fragment>
+          )}
+        </div>
+
+        <div className="card">
+          <h2 className="pz-h">Plan działań</h2>
+          {pl.all === 0 ? (
+            <p className="pz-empty">Nie ma jeszcze działań – <PzGo tab="plan" goTo={goTo}>przejdź do Planu działań</PzGo>.</p>
+          ) : (
+            <React.Fragment>
+              <div className="flex-between pz-line"><span>Zrealizowane</span><strong>{pl.done} z {pl.all} ({pl.pctDone}%)</strong></div>
+              <div className="bar-track"><div className="bar-fill" style={{width: pl.pctDone + "%", background: "var(--green)"}}/></div>
+              <div className="pz-stack" role="img" aria-label={"Statusy: " + pl.byStatus.map(s => s.status + " " + s.count).join(", ")}>
+                {pl.byStatus.map((s, i) => s.count > 0 && (
+                  <div key={s.status} className={"seg st-" + i} style={{flexGrow: s.count}} title={s.status + ": " + s.count}>{s.count}</div>
+                ))}
+              </div>
+              <ul className="pz-legend-list">
+                {pl.byStatus.map((s, i) => (
+                  <li key={s.status}><span className={"sw st-" + i}/>{s.status}: <strong>{s.count}</strong></li>
+                ))}
+              </ul>
+              {pl.wipOver
+                ? <div className="pz-warn">W realizacji: {pl.wip} – powyżej limitu WIP ({MAX_WIP_ACTIONS}).</div>
+                : <div className="pz-note">Zasada WIP: maksymalnie {MAX_WIP_ACTIONS} działań „W realizacji” — teraz {pl.wip}.</div>}
+              <div className="pz-line">Dodane do harmonogramu: <strong>{pl.added} z {pl.all} ({pl.pctAdded}%)</strong></div>
+              {aiOn && pl.fromAi > 0 && <div className="pz-ai-line">w tym {pl.fromAi} z propozycji AI</div>}
             </React.Fragment>
           )}
         </div>
       </div>
 
-      <div className="card">
-        <h2>Pulpit planu działań</h2>
-        <div style={{marginBottom:16}}>
-          <div className="flex-between" style={{marginBottom:6}}>
-            <strong>Postęp realizacji</strong>
-            <span className="muted">
-              {statusCounts.all>0
-                ? (statusCounts["Zrealizowane"] + " z " + statusCounts.all + " działań zrealizowanych (" + Math.round(statusCounts["Zrealizowane"]/statusCounts.all*100) + "%)")
-                : "brak działań"}
-            </span>
-          </div>
-          <div className="bar-track"><div className="bar-fill" style={{width: (statusCounts.all>0 ? (statusCounts["Zrealizowane"]/statusCounts.all*100) : 0)+"%", background:"var(--green)"}}/></div>
+      {/* D. Bariery a działania  +  E. Najbliższe terminy */}
+      <div className="pz-grid2">
+        <div className="card">
+          <h2 className="pz-h">Bariery a działania</h2>
+          {d.barrierRows.length === 0 ? (
+            <p className="pz-empty">Nie ma jeszcze grup z przypisaną rolą – <PzGo tab="diagnoza" goTo={goTo}>przejdź do Diagnozy</PzGo>.</p>
+          ) : (
+            <table className="pz-table pz-barriers">
+              <thead><tr><th>Rola</th><th>Bariera</th><th className="pz-num">Działań</th><th className="pz-num">Zreal.</th></tr></thead>
+              <tbody>
+                {d.barrierRows.map(r => (
+                  <tr key={r.id} className={r.uncovered ? "pz-uncovered" : r.barrier.status !== "barrier" ? "pz-dim" : ""}>
+                    <td title={r.label}>{shortRoleLabel(r.id)}</td>
+                    <td>
+                      {r.barrier.status === "barrier" ? barrierExportText(r.barrier) : r.barrier.status === "ready" ? "brak istotnej bariery" : "brak ocen"}
+                      {r.uncovered && <div><button className="small pz-fix" onClick={() => goTo("plan")}>Zaplanuj działanie</button></div>}
+                    </td>
+                    <td className="pz-num">{r.actions}</td>
+                    <td className="pz-num">{r.actions ? r.done : "–"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
-        <div className="grid cols4">
-          <div className="action-row" style={{textAlign:"center"}}><div style={{fontSize:24, fontWeight:700}}>{statusCounts.all}</div><div className="muted">wszystkie</div></div>
-          <div className="action-row" style={{textAlign:"center"}}>
-            <div style={{fontSize:24, fontWeight:700, color: wipOver?"var(--red)":"inherit"}}>{statusCounts["W realizacji"]}</div>
-            <div className="muted">w realizacji {wipOver ? "(limit " + MAX_WIP_ACTIONS + "!)" : ""}</div>
-          </div>
-          <div className="action-row" style={{textAlign:"center"}}><div style={{fontSize:24, fontWeight:700}}>{statusCounts["Zablokowane"]}</div><div className="muted">zablokowane</div></div>
-          <div className="action-row" style={{textAlign:"center"}}><div style={{fontSize:24, fontWeight:700}}>{statusCounts.dodaneDoHarmonogramu}</div><div className="muted">dodane do harmonogramu</div></div>
+
+        <div className="card">
+          <h2 className="pz-h">Najbliższe terminy</h2>
+          {d.overdueCount > 0 && <PzGo tab="plan" goTo={goTo} className="pz-overdue">Po terminie: {d.overdueCount}</PzGo>}
+          {pl.all === 0 ? (
+            <p className="pz-empty">Nie ma jeszcze działań – <PzGo tab="plan" goTo={goTo}>przejdź do Planu działań</PzGo>.</p>
+          ) : d.upcoming.length === 0 ? (
+            <p className="pz-empty">Brak nadchodzących terminów – <PzGo tab="plan" goTo={goTo}>uzupełnij terminy w Planie działań</PzGo>.</p>
+          ) : (
+            <ul className="pz-dates">
+              {d.upcoming.map(a => (
+                <li key={a.id}>
+                  <span className="pz-date">{formatDatePl(a.termin)}</span>
+                  <span className="pz-what" title={a.dzialanie}>{truncateText(a.dzialanie, 70) || "(bez opisu)"}</span>
+                  <span className="pz-who muted">{shortRoleLabel(a.categoryId)} · {(a.odpowiedzialny || "").trim() || "brak odpowiedzialnego"}</span>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
-        <p className="hint">Zasada WIP: maksymalnie {MAX_WIP_ACTIONS} działań ze statusem „W realizacji” jednocześnie — pozostałe czekają jako „Do zaplanowania”.</p>
       </div>
 
+      {/* F. Co wymaga uwagi */}
       <div className="card">
-        <h2>Sygnały do decyzji</h2>
-        <table>
-          <tbody>
-            <tr><td>Brak odpowiedzialnego</td><td><Badge tone={signals.brakOdpowiedzialnego>0?"orange":"green"}>{signals.brakOdpowiedzialnego}</Badge></td></tr>
-            <tr><td>Brak terminu / kamienia milowego</td><td><Badge tone={signals.brakTerminu>0?"orange":"green"}>{signals.brakTerminu}</Badge></td></tr>
-            <tr><td>Zablokowane</td><td><Badge tone={signals.zablokowane>0?"red":"green"}>{signals.zablokowane}</Badge></td></tr>
-          </tbody>
-        </table>
+        <h2 className="pz-h">Co wymaga uwagi</h2>
+        {d.attention.length === 0 ? (
+          <div className="banner pz-ok">Nic nie wymaga teraz uwagi.</div>
+        ) : (
+          <ul className="pz-attn">
+            {d.attention.map(i => (
+              <li key={i.key}><PzGo tab={i.tab} goTo={goTo}>{i.label}: <strong>{i.count}</strong></PzGo></li>
+            ))}
+          </ul>
+        )}
       </div>
 
-      <div className="card">
-        <p className="hint" style={{margin:0}}>Pełny opis sposobu pracy z PZZ — zakładka <a href="#" onClick={(e)=>{e.preventDefault(); goTo("przewodnik");}}>Przewodnik</a>.</p>
-      </div>
-    </React.Fragment>
+      <p className="hint pz-guide">Pełny opis sposobu pracy z PZZ — zakładka <a href="#" onClick={(e)=>{e.preventDefault(); goTo("przewodnik");}}>Przewodnik</a>.</p>
+    </div>
   );
 }
 
