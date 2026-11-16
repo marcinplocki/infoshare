@@ -875,6 +875,15 @@ function kartaToText(html){
 //   quoteFoundInText("„Grupy objęte zmianą”",        normalizeForQuote("tabela \"Grupy objęte zmianą\""))                     === true   // cudzysłowy
 //   quoteFoundInText("Jan Kowalski",                 normalizeForQuote("Tomasz Wiśniewski – Dyrektor"))                       === false  // brak w karcie
 //   quoteFoundInText("", src) === false;  quoteFoundInText(null, src) === false;  quoteFoundInText("   ", src) === false
+//
+// Asercje dla verifyAiKarta (tekst = karta przykładowa projektu; prawdziwy cytat, zmyślona wartość):
+//   pm      wartosc ["Jan Zmyślony – Kierownik"],   cytat "Katarzyna Lis – Kierownik PMO"
+//           → status "unverified", missingParts ["osoba „Jan Zmyślony – Kierownik”"]
+//   benefit korzysc "Oszczędność 8% na kosztach zakupowych rocznie", miernik "20% redukcji liczby dostawców",
+//           cytat "Oszczędność 8% na kosztach zakupowych rocznie"
+//           → status "unverified", missingParts ["miernik"]
+//   okresRealizacji wartosc "01.02.2026 - 31.12.2026" (zwykły myślnik), w karcie "01.02.2026 – 31.12.2026"
+//           → status "verified", missingParts []
 function normalizeForQuote(s){
   return String(s == null ? "" : s).normalize("NFC")
     .replace(/[“”„‟«»″]/g, '"')
@@ -959,26 +968,46 @@ function validateAiKarta(o){
 }
 
 // Mapuje odpowiedź na strukturę parsera (reszta aplikacji się nie zmienia) i oznacza każdą
-// pozycję: "verified" (cytat jest w karcie), "unverified" (brak cytatu albo cytatu nie ma w karcie),
-// "missing" (pole metryczki = null, czyli „brak w karcie").
+// pozycję: "verified", "unverified" albo "missing" (pole metryczki = null, czyli „brak w karcie").
+// "verified" wymaga DWÓCH warunków: (1) cytat występuje w karcie, (2) każda niepusta część wartości
+// też występuje w karcie — sam prawdziwy cytat nie chroni przed zmyśloną wartością obok niego.
+// Warunek 2 sprawdzamy względem CAŁEGO tekstu karty, nie cytatu: cytat bywa przycięty (do 200 znaków)
+// i przy długim wierszu korzyści nie obejmuje miernika. `missingParts` = nazwy części, których nie
+// znaleziono (do komunikatu „Nie znaleziono w karcie: miernik").
 function verifyAiKarta(ai, sourceText){
   const src = normalizeForQuote(sourceText);
-  const statusOf = quote => quoteFoundInText(quote, src) ? "verified" : "unverified";
   const s = v => (v == null ? "" : String(v).trim());
+  const judge = (quote, parts) => {
+    const missingParts = parts.filter(([, val]) => s(val) && !quoteFoundInText(val, src)).map(([label]) => label);
+    return {missingParts, status: quoteFoundInText(quote, src) && missingParts.length === 0 ? "verified" : "unverified"};
+  };
   let seq = 0;
-  const item = (kind, data, quote) => ({id: kind + "-" + (seq++), kind, data, quote: s(quote), status: statusOf(quote)});
+  const item = (kind, data, quote, parts) => ({id: kind + "-" + (seq++), kind, data, quote: s(quote), ...judge(quote, parts)});
   const fields = AI_FIELD_KEYS.map(key => {
     const f = ai.fields[key];
-    const value = Array.isArray(f.wartosc) ? f.wartosc.map(s).filter(Boolean).join("; ") : s(f.wartosc);
-    return {id: "field-" + key, kind: "field", key, data: {value}, quote: s(f.cytat),
-      status: value ? statusOf(f.cytat) : "missing"};
+    // sponsor/pm: każdą osobę sprawdzamy osobno, PRZED złączeniem "; " (złączonego ciągu w karcie nie ma).
+    const people = Array.isArray(f.wartosc) ? f.wartosc.map(s).filter(Boolean) : null;
+    const value = people ? people.join("; ") : s(f.wartosc);
+    const base = {id: "field-" + key, kind: "field", key, data: {value}, quote: s(f.cytat)};
+    if (!value) return {...base, status: "missing", missingParts: []};
+    const parts = people ? people.map(p => ["osoba „" + p + "”", p]) : [["wartość", value]];
+    return {...base, ...judge(f.cytat, parts)};
   });
   return {
     kartaType: ai.kartaType || null,
     fields,
-    groups: ai.groups.map(g => item("group", {nazwa: s(g.nazwa), wplyw: s(g.wplyw)}, g.cytat)),
-    milestones: ai.milestones.map(m => item("milestone", {nazwa: s(m.nazwa), termin: s(m.termin), typ: m.typ}, m.cytat)),
-    benefits: ai.benefits.map(b => item("benefit", {korzysc: s(b.korzysc), kategoria: s(b.kategoria), termin: s(b.termin), miernik: s(b.miernik)}, b.cytat)),
+    groups: ai.groups.map(g => {
+      const d = {nazwa: s(g.nazwa), wplyw: s(g.wplyw)};
+      return item("group", d, g.cytat, [["nazwa", d.nazwa], ["opis zmiany", d.wplyw]]);
+    }),
+    milestones: ai.milestones.map(m => {
+      const d = {nazwa: s(m.nazwa), termin: s(m.termin), typ: m.typ};
+      return item("milestone", d, m.cytat, [["nazwa", d.nazwa], ["termin", d.termin]]);
+    }),
+    benefits: ai.benefits.map(b => {
+      const d = {korzysc: s(b.korzysc), kategoria: s(b.kategoria), termin: s(b.termin), miernik: s(b.miernik)};
+      return item("benefit", d, b.cytat, [["korzyść", d.korzysc], ["kategoria", d.kategoria], ["termin", d.termin], ["miernik", d.miernik]]);
+    }),
     uwagi: (ai.uwagi || []).map(s).filter(Boolean),
   };
 }
@@ -1818,7 +1847,7 @@ function App(){
 
       {toast && <div style={{position:"fixed", bottom:16, right:16, maxWidth:360, background:"var(--ink)", color:"#fff", padding:"10px 16px", borderRadius:8, fontSize:13}}>{toast}</div>}
 
-      <footer className="app">Plan Zarządzania Zmianą · Grupa Merito · wersja robocza · v2.3</footer>
+      <footer className="app">Plan Zarządzania Zmianą · Grupa Merito · wersja robocza · v2.3.1</footer>
     </React.Fragment>
   );
 }
@@ -1853,6 +1882,12 @@ function AiQuote({quote}){
   );
 }
 
+// Konkretnie, której części wartości nie ma w karcie (np. „Nie znaleziono w karcie: miernik"); pusty
+// tekst, gdy problemem jest wyłącznie cytat — wtedy zostaje ogólne „Nie znaleziono w karcie – sprawdź".
+function missingPartsText(it){
+  return it.missingParts && it.missingParts.length ? "Nie znaleziono w karcie: " + it.missingParts.join(", ") : "";
+}
+
 // Podgląd odczytu przez AI: uwagi modelu, wartości niezweryfikowane (do ręcznej decyzji) oraz
 // pełna lista odczytanych wartości z cytatem źródłowym przy każdej.
 function KartaAiDetails({ai, onApplyPending}){
@@ -1862,7 +1897,7 @@ function KartaAiDetails({ai, onApplyPending}){
     if (it.status === "missing") return <Badge tone="gray">brak w karcie</Badge>;
     if (it.status === "verified") return <Badge tone="green">znaleziono w karcie</Badge>;
     if (ai.appliedIds.includes(it.id)) return <Badge tone="gray">zastosowano mimo to</Badge>;
-    return <Badge tone="orange">Nie znaleziono w karcie – sprawdź</Badge>;
+    return <Badge tone="orange">{missingPartsText(it) || "Nie znaleziono w karcie – sprawdź"}</Badge>;
   };
   const sections = [
     {title: "Metryczka", items: v.fields},
@@ -1883,8 +1918,8 @@ function KartaAiDetails({ai, onApplyPending}){
         <div className="ai-section ai-pending">
           <div className="ai-section-title">Nie znaleziono w karcie – sprawdź ({remaining.length})</div>
           <p className="hint" style={{margin:"0 0 8px"}}>
-            Tych wartości nie zastosowano automatycznie, bo podanego przy nich fragmentu nie ma w karcie. Sprawdź je
-            w karcie i zastosuj tylko te, które są poprawne.
+            Tych wartości nie zastosowano automatycznie, bo nie udało się ich odnaleźć w karcie (całych albo
+            którejś części). Sprawdź je w karcie i zastosuj tylko te, które są poprawne.
           </p>
           {remaining.map(it => (
             <div key={it.id} className="ai-row">
@@ -1892,6 +1927,7 @@ function KartaAiDetails({ai, onApplyPending}){
                 <div style={{flex:"1 1 0", minWidth:0}}><span className="muted">{aiItemLabel(it)}:</span> {aiItemValue(it)}</div>
                 <button className="small" onClick={() => onApplyPending(it.id)}>Zastosuj mimo to</button>
               </div>
+              {missingPartsText(it) && <div style={{fontSize:13, fontWeight:600, color:"var(--orange)", marginTop:2}}>{missingPartsText(it)}</div>}
               <AiQuote quote={it.quote}/>
             </div>
           ))}
