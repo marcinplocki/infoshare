@@ -88,6 +88,18 @@
   .ai-row{padding:6px 0;border-top:1px solid var(--line);}
   .ai-quote summary{cursor:pointer;font-size:13px;color:var(--accent);margin-top:2px;}
   .ai-quote blockquote{margin:4px 0 2px;padding:6px 10px;border-left:3px solid var(--line);background:var(--paper);font-size:13.5px;color:var(--ink-soft);white-space:pre-wrap;}
+  /* v2.4: globalny przełącznik funkcji AI i propozycje AI przy danych */
+  .ai-bar{background:#e9ecf6;border-bottom:1px solid var(--line);padding:8px 20px;font-size:13.5px;color:var(--ink-soft);display:flex;flex-wrap:wrap;gap:4px 14px;align-items:center;}
+  .ai-bar label{display:flex;gap:7px;align-items:center;font-weight:700;color:var(--ink);cursor:pointer;margin:0;}
+  .ai-bar .ai-bar-note{flex:1 1 360px;}
+  .badge.ai{background:var(--accent-soft);color:var(--accent);font-size:12.5px;padding:2px 9px;}
+  .ai-action{margin-top:10px;}
+  .ai-action .ai-action-note{font-size:13.5px;color:var(--muted);margin-top:4px;}
+  .ai-error{font-size:13.5px;color:var(--red);margin-top:6px;}
+  .ai-prop{border:1px dashed var(--accent);background:#f6f9ff;border-radius:8px;padding:8px 12px;margin-top:8px;font-size:14px;}
+  .ai-prop .ai-prop-head{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
+  .ai-prop .ai-prop-why{color:var(--ink-soft);margin-top:4px;}
+  .ai-prop .ai-prop-buttons{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;}
   .action-row{border:1px solid var(--line);border-radius:9px;padding:14px;margin-bottom:10px;background:#fbfcfc;}
   .action-row .top{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px;}
   .muted{color:var(--muted);}
@@ -900,15 +912,20 @@ function quoteFoundInText(quote, normalizedSource){
 
 // Każda porażka AI kończy się odczytem przez parser — message trafia do komunikatu
 // "Nie udało się odczytać karty z pomocą AI (…)", więc ma być krótki i po polsku.
+// (Ta sama klasa błędu służy wszystkim funkcjom AI, nie tylko importowi karty.)
 class AiImportError extends Error {}
 
-async function requestAiKarta(inputText, signal){
+// Jedno wejście do serwera dla wszystkich funkcji AI. `payload` to tekst (import karty — wysyłany
+// bez zmian, jak w v2.3) albo obiekt (pozostałe funkcje — wysyłany jako JSON w polu `input`).
+// Instrukcję dla modelu wybiera serwer po nazwie zadania (`task`); narzędzie jej nie wysyła.
+async function requestAi(task, payload, signal){
+  const input = typeof payload === "string" ? payload : JSON.stringify(payload);
   let res;
   try {
     res = await fetch("/api/ai.php", {
       method: "POST",
       headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({task: "import_karty", input: inputText}),
+      body: JSON.stringify({task, input}),
       signal,
     });
   } catch(e){
@@ -936,6 +953,101 @@ function extractJsonObject(text){
   if (a === -1 || b <= a) throw new AiImportError("odpowiedź nie zawiera danych");
   try { return JSON.parse(t.slice(a, b + 1)); }
   catch(e){ throw new AiImportError("niepoprawny format odpowiedzi"); }
+}
+
+// Wspólne dla funkcji AI z v2.4: limit czasu 90 s, wyciągnięcie JSON z odpowiedzi i walidacja
+// właściwa dla danej funkcji (validate rzuca AiImportError, gdy odpowiedź nie pasuje do formatu).
+async function runAiTask(task, payload, validate){
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), AI_TIMEOUT_MS);
+  try { return validate(extractJsonObject(await requestAi(task, payload, controller.signal))); }
+  finally { clearTimeout(timer); }
+}
+
+const AI_ENABLED_LS_KEY = "pzz_ai_enabled";
+function loadAiEnabled(){
+  try { return localStorage.getItem(AI_ENABLED_LS_KEY) !== "0"; } catch(e){ return true; }
+}
+function saveAiEnabled(on){
+  try { localStorage.setItem(AI_ENABLED_LS_KEY, on ? "1" : "0"); } catch(e){}
+}
+
+/* ---------- Walidacja odpowiedzi funkcji AI z v2.4 ----------
+   Zasada wspólna: brak oczekiwanej listy na górze odpowiedzi = błąd (dane bez zmian). Pojedyncze
+   pozycje niezgodne z formatem odrzucamy; jeśli lista NIE jest pusta, a odrzucić trzeba wszystkie
+   (np. model zmienił nazwę pola w każdej pozycji), to też błąd — inaczej użytkownik zobaczyłby
+   „brak propozycji" zamiast informacji, że odpowiedź była zła. */
+const AI_BAD_FORMAT = "nieprawidłowa struktura odpowiedzi";
+const isPlainObj = v => v !== null && typeof v === "object" && !Array.isArray(v);
+const isNonEmptyStr = v => typeof v === "string" && v.trim() !== "";
+function aiFilterList(list, check){
+  if (!Array.isArray(list)) throw new AiImportError(AI_BAD_FORMAT);
+  const kept = list.filter(x => isPlainObj(x) && check(x));
+  if (list.length > 0 && kept.length === 0) throw new AiImportError(AI_BAD_FORMAT);
+  return kept;
+}
+
+// przypisz_role
+//   poprawna:  {"przypisania":[{"grupaId":"g1","rolaId":"nowezasady","uzasadnienie":"Zmienia się ich codzienna praca."},
+//                              {"grupaId":"g2","rolaId":null,"uzasadnienie":"Opis zbyt ogólny."}]}
+//   odrzucona: {"assignments":[…]} — zła nazwa listy → błąd;
+//              {"przypisania":[{"grupa":"g1","rola":"nowezasady"}]} — złe nazwy pól we wszystkich pozycjach → błąd;
+//              pozycja z grupaId spoza wysłanych albo rolaId spoza CATEGORIES → pominięta.
+function validateRolesResponse(o, sentGroupIds){
+  if (!isPlainObj(o)) throw new AiImportError(AI_BAD_FORMAT);
+  const roleIds = CATEGORIES.map(c => c.id);
+  const seen = new Set();
+  return aiFilterList(o.przypisania, p =>
+    sentGroupIds.includes(p.grupaId) && (p.rolaId === null || roleIds.includes(p.rolaId)) && typeof p.uzasadnienie === "string"
+  ).filter(p => !seen.has(p.grupaId) && seen.add(p.grupaId))
+   .map(p => ({grupaId: p.grupaId, rolaId: p.rolaId, uzasadnienie: p.uzasadnienie.trim()}));
+}
+
+// propozycje_dzialan
+//   poprawna:  {"propozycje":[{"dzialanie":"Warsztat dla kierowników spółek","bariera":"desire",
+//                              "kamien":"Wdrożenie systemu","uzasadnienie":"Desire oceniono na 2."}]}
+//   odrzucona: {"actions":[…]} → błąd;  {"propozycje":[{"dzialanie":"…","bariera":"motywacja"}]} → błąd
+//              (jedyna pozycja z barierą spoza ADKAR); "kamien" niebędący DOKŁADNIE nazwą etapu/kamienia
+//              z karty → zamieniany na null (pozycja zostaje); powyżej 3 poprawnych → tylko pierwsze 3.
+function validateActionsResponse(o, milestoneNames){
+  if (!isPlainObj(o)) throw new AiImportError(AI_BAD_FORMAT);
+  const dims = ADKAR_DIMS.map(d => d.id);
+  return aiFilterList(o.propozycje, p =>
+    isNonEmptyStr(p.dzialanie) && dims.includes(p.bariera) && (p.kamien == null || typeof p.kamien === "string")
+    && (p.uzasadnienie == null || typeof p.uzasadnienie === "string")
+  ).slice(0, 3).map(p => ({
+    dzialanie: p.dzialanie.trim(), bariera: p.bariera,
+    kamien: typeof p.kamien === "string" && milestoneNames.includes(p.kamien) ? p.kamien : null,
+    uzasadnienie: (p.uzasadnienie || "").trim(),
+  }));
+}
+
+// sprawdz_adkar
+//   poprawna:  {"uwagi":[{"rolaId":"nowezasady","wymiar":"knowledge","uwaga":"Nowy system, a Knowledge = 5?"},
+//                        {"rolaId":"kierunek","wymiar":null,"uwaga":"Wszystkie oceny identyczne."}]}  albo  {"uwagi":[]}
+//   odrzucona: {"remarks":[…]} → błąd;  {"uwagi":[{"rola":"x","tekst":"…"}]} → błąd (złe pola wszędzie);
+//              pozycja z rolaId spoza wysłanych ról albo wymiarem spoza ADKAR → pominięta.
+function validateAdkarResponse(o, sentRoleIds){
+  if (!isPlainObj(o)) throw new AiImportError(AI_BAD_FORMAT);
+  const dims = ADKAR_DIMS.map(d => d.id);
+  return aiFilterList(o.uwagi, u =>
+    sentRoleIds.includes(u.rolaId) && (u.wymiar === null || u.wymiar === undefined || dims.includes(u.wymiar)) && isNonEmptyStr(u.uwaga)
+  ).map(u => ({rolaId: u.rolaId, wymiar: u.wymiar || null, uwaga: u.uwaga.trim()}));
+}
+
+// pct_wstepne
+//   poprawna:  {"odpowiedzi":[{"id":"definicjaSukcesu.0","ocena":4,"uzasadnienie":"Karta ma miernik i termin."},
+//                             {"id":"przywodztwo.2","ocena":null,"uzasadnienie":null}]}
+//   odrzucona: {"answers":[…]} → błąd;  {"odpowiedzi":[{"pytanie":"definicjaSukcesu.0","wynik":4}]} → błąd;
+//              ocena 0, 6, 3.5 albo "4" (tekst) albo id spoza wysłanych → pozycja pominięta.
+function validatePctResponse(o, sentIds){
+  if (!isPlainObj(o)) throw new AiImportError(AI_BAD_FORMAT);
+  const seen = new Set();
+  return aiFilterList(o.odpowiedzi, a =>
+    sentIds.includes(a.id) && (a.ocena === null || (Number.isInteger(a.ocena) && a.ocena >= 1 && a.ocena <= 5))
+    && (a.uzasadnienie == null || typeof a.uzasadnienie === "string")
+  ).filter(a => !seen.has(a.id) && seen.add(a.id))
+   .map(a => ({id: a.id, ocena: a.ocena, uzasadnienie: (a.uzasadnienie || "").trim()}));
 }
 
 // Sprawdzenie struktury wg kontraktu z serwerem. Brak cytatu NIE jest błędem struktury — taka
@@ -1122,8 +1234,20 @@ function App(){
   const [toast, setToast] = useState(null);
   const [kartaImport, setKartaImport] = useState(null);
   const [kartaPreImportSnapshot, setKartaPreImportSnapshot] = useState(null);
-  const [useAiForKarta, setUseAiForKarta] = useState(true);
   const [kartaAiBusySince, setKartaAiBusySince] = useState(null);
+  // Globalny przełącznik „Funkcje AI" (tylko online). Wyłączony = żadnych przycisków ani wzmianek
+  // o AI, import karty przez parser.
+  const [aiEnabled, setAiEnabledState] = useState(loadAiEnabled);
+  const aiOn = AI_AVAILABLE && aiEnabled;
+  // Stan pracy i błędy przycisków AI (klucz = który przycisk) oraz propozycje AI. Celowo POZA `state`:
+  // propozycje nie trafiają do pliku, eksportu ani wersji — do danych wchodzi tylko to, co
+  // użytkownik przyjął. Trzymamy je w App (nie w zakładce), żeby przełączenie zakładki w trakcie
+  // zapytania nie gubiło wyniku, za który zapłaciło się limitem zapytań.
+  const [aiBusy, setAiBusy] = useState({});
+  const [aiErrors, setAiErrors] = useState({});
+  const aiBusyRef = useRef({});
+  const EMPTY_AI_PROPOSALS = {roles: {}, actions: {}, adkar: null, pct: null};
+  const [aiProposals, setAiProposals] = useState(EMPTY_AI_PROPOSALS);
   // Odczyt przez AI trwa 10–40 s, a użytkownik może w tym czasie edytować pola — wynik nakładamy
   // na NAJNOWSZY stan, nie na ten sprzed wysłania zapytania.
   const stateRef = useRef(state);
@@ -1241,6 +1365,7 @@ function App(){
   }
   function loadVersion(entry){
     setState(sanitizeProjectState(entry.data));
+    setAiProposals(EMPTY_AI_PROPOSALS);
     setShowVersions(false);
     setToast("Wczytano wersję: " + entry.name);
   }
@@ -1261,8 +1386,9 @@ function App(){
     reader.onload = () => {
       mammoth.convertToHtml({arrayBuffer: reader.result})
         .then(result => {
-          if (AI_AVAILABLE && useAiForKarta) return importKartaViaAi(result.value, file.name);
-          importKartaViaParser(result.value, file.name, AI_AVAILABLE ? {method: "parser"} : {});
+          // v2.4: funkcje AI wyłączone (albo offline) = parser bez żadnej wzmianki o AI, jak w v2.2.
+          if (aiOn) return importKartaViaAi(result.value, file.name);
+          importKartaViaParser(result.value, file.name, {});
         })
         .catch(() => setKartaImport({fileName: file.name, failed:true}));
     };
@@ -1314,7 +1440,7 @@ function App(){
     let outcome = null;
     try {
       const text = kartaToText(html);
-      const raw = await requestAiKarta(text, controller.signal);
+      const raw = await requestAi("import_karty", text, controller.signal);
       const v = verifyAiKarta(validateAiKarta(extractJsonObject(raw)), text);
       const anything = v.fields.some(f => f.status !== "missing") || v.groups.length || v.milestones.length || v.benefits.length;
       if (!anything) throw new AiImportError("nie odczytano z karty żadnych danych");
@@ -1370,6 +1496,195 @@ function App(){
     setToast("Cofnięto import karty.");
   }
   function dismissKartaImport(){ setKartaImport(null); }
+
+  /* -------- funkcje AI z v2.4: AI proponuje, człowiek decyduje -------- */
+
+  function setAiEnabled(on){
+    setAiEnabledState(on);
+    saveAiEnabled(on);
+    if (!on) setAiProposals(EMPTY_AI_PROPOSALS);
+  }
+  // Uruchamia zapytanie AI przypisane do jednego przycisku (`key`): stan „Pracuję…", blokada
+  // podwójnego kliknięcia i komunikat błędu przy tym przycisku. Błąd nie zmienia żadnych danych.
+  async function runAi(key, fn){
+    if (aiBusyRef.current[key]) return;
+    aiBusyRef.current = {...aiBusyRef.current, [key]: Date.now()};
+    setAiBusy(aiBusyRef.current);
+    setAiErrors(e => ({...e, [key]: ""}));
+    try { await fn(); }
+    catch(e){ setAiErrors(er => ({...er, [key]: e instanceof AiImportError ? e.message : "nieoczekiwany błąd"})); }
+    finally {
+      const next = {...aiBusyRef.current}; delete next[key];
+      aiBusyRef.current = next;
+      setAiBusy(next);
+    }
+  }
+  const aiProjectContext = s => ({
+    nazwa: s.project.nazwa || "",
+    korzysci: s.benefits.map(b => ({korzysc: b.korzysc || "", miernik: b.miernik || "", termin: b.termin || ""})),
+    etapy: s.milestones.map(m => ({nazwa: m.nazwa || "", typ: m.typ || "", termin: m.termin || ""})),
+  });
+  const roleLabel = id => (CATEGORIES.find(c => c.id === id) || {}).label || "";
+
+  // ZADANIE 1 — propozycje ról dla grup bez roli.
+  function aiProposeRoles(){
+    return runAi("roles", async () => {
+      const s = stateRef.current;
+      const groups = s.groups.filter(g => !g.categoryId);
+      if (!groups.length) return;
+      const payload = {
+        projekt: {nazwa: s.project.nazwa || "", typ: s.project.typProjektu || ""},
+        role: CATEGORIES.map(c => ({id: c.id, nazwa: c.label, opis: c.hint})),
+        grupy: groups.map(g => ({id: g.id, nazwa: g.nazwa || "", opisZmiany: g.wplyw || ""})),
+      };
+      const list = await runAiTask("przypisz_role", payload, o => validateRolesResponse(o, groups.map(g => g.id)));
+      const roles = {};
+      list.forEach(p => { roles[p.grupaId] = {rolaId: p.rolaId, uzasadnienie: p.uzasadnienie}; });
+      setAiProposals(p => ({...p, roles}));
+      if (!list.length) setToast("AI nie zwróciło propozycji ról.");
+    });
+  }
+  // Przyjęcie ustawia rolę TYLKO grupie, która nadal jej nie ma (rola ustawiona w międzyczasie
+  // ręcznie wygrywa). `groupIds` = null → wszystkie propozycje z rolą.
+  function aiAcceptRoles(groupIds){
+    const props = aiProposals.roles;
+    const ids = (groupIds || Object.keys(props)).filter(id => props[id] && props[id].rolaId);
+    setState(s => ({...s, groups: s.groups.map(g =>
+      ids.includes(g.id) && !g.categoryId ? {...g, categoryId: props[g.id].rolaId} : g)}));
+    setAiProposals(p => { const r = {...p.roles}; ids.forEach(id => delete r[id]); return {...p, roles: r}; });
+  }
+
+  // ZADANIE 2 — propozycje działań dla roli z barierą.
+  function aiProposeActions(catId){
+    return runAi("actions:" + catId, async () => {
+      const s = stateRef.current;
+      const c = CATEGORIES.find(x => x.id === catId);
+      const d = s.adkarByCategory[catId] || {};
+      const oceny = {};
+      ADKAR_DIMS.forEach(dim => { oceny[dim.id] = d[dim.id] == null || d[dim.id] === "" ? null : Number(d[dim.id]); });
+      // Wszystkie wymiary z najniższą oceną ≤3 (reguła bariery pokazuje przy remisie ≥3 tylko pierwszy,
+      // ale modelowi przydaje się pełna lista).
+      const rated = Object.values(oceny).filter(v => v != null);
+      const worst = rated.length ? Math.min(...rated) : null;
+      const bariery = worst != null && worst <= 3 ? ADKAR_DIMS.filter(dim => oceny[dim.id] === worst).map(dim => dim.id) : [];
+      const przyklady = {};
+      bariery.forEach(b => { przyklady[b] = ADKAR_EXAMPLES_SHORT[b]; });
+      const payload = {
+        projekt: aiProjectContext(s),
+        rola: {id: c.id, nazwa: c.label, opis: c.hint},
+        grupy: s.groups.filter(g => g.categoryId === catId).map(g => ({nazwa: g.nazwa || "", opisZmiany: g.wplyw || ""})),
+        oceny, bariery,
+        istniejaceDzialania: s.actions.filter(a => a.categoryId === catId && (a.dzialanie || "").trim()).map(a => a.dzialanie.trim()),
+        przyklady,
+      };
+      const names = s.milestones.map(m => m.nazwa);
+      const list = await runAiTask("propozycje_dzialan", payload, o => validateActionsResponse(o, names));
+      setAiProposals(p => ({...p, actions: {...p.actions, [catId]: list.map(x => ({...x, id: cryptoId()}))}}));
+      if (!list.length) setToast("AI nie zwróciło propozycji działań.");
+    });
+  }
+  function aiDismissAction(catId, propId){
+    setAiProposals(p => ({...p, actions: {...p.actions, [catId]: (p.actions[catId] || []).filter(x => x.id !== propId)}}));
+  }
+  // „Dodaj do planu" — zwykłe działanie tej roli (edytowalne jak każde inne), z oznaczeniem
+  // propozycjaAi do oceny pilotażu. Termin i odpowiedzialny zostają puste.
+  function aiAddAction(catId, propId){
+    const prop = (aiProposals.actions[catId] || []).find(x => x.id === propId);
+    if (!prop) return;
+    setState(s => ({...s, actions: [...s.actions, {
+      id: cryptoId(), categoryId: catId, dzialanie: prop.dzialanie, kamien: prop.kamien || "", termin: "", odpowiedzialny: "",
+      dodanoDoHarmonogramu: false, status: "Do zaplanowania", propozycjaAi: true,
+    }]}));
+    aiDismissAction(catId, propId);
+  }
+
+  // ZADANIE 3 — AI sprawdza oceny ADKAR (tylko uwagi; ocen nigdy nie zmienia).
+  function aiCheckAdkar(){
+    return runAi("adkar", async () => {
+      const s = stateRef.current;
+      const roles = CATEGORIES.filter(c => s.groups.some(g => g.categoryId === c.id)).filter(c => {
+        const d = s.adkarByCategory[c.id] || {};
+        return ADKAR_DIMS.every(dim => d[dim.id] != null && d[dim.id] !== "");
+      });
+      if (!roles.length) return;
+      const payload = {
+        projekt: aiProjectContext(s),
+        role: roles.map(c => {
+          const d = s.adkarByCategory[c.id];
+          const oceny = {};
+          ADKAR_DIMS.forEach(dim => { oceny[dim.id] = Number(d[dim.id]); });
+          return {id: c.id, nazwa: c.label,
+            grupy: s.groups.filter(g => g.categoryId === c.id).map(g => ({nazwa: g.nazwa || "", opisZmiany: g.wplyw || ""})), oceny};
+        }),
+      };
+      const list = await runAiTask("sprawdz_adkar", payload, o => validateAdkarResponse(o, roles.map(c => c.id)));
+      // `total` = ile uwag przyszło (pusta lista → komunikat „AI nie widzi niespójności…”; po schowaniu
+      // wszystkich uwag przyciskiem „Rozumiem” tego komunikatu nie pokazujemy).
+      setAiProposals(p => ({...p, adkar: {uwagi: list.map(u => ({...u, id: cryptoId()})), total: list.length}}));
+    });
+  }
+  function aiDismissAdkarRemark(id){
+    setAiProposals(p => p.adkar ? {...p, adkar: {...p.adkar, uwagi: p.adkar.uwagi.filter(u => u.id !== id)}} : p);
+  }
+
+  // ZADANIE 4 — wstępne odpowiedzi PCT dla bieżącego (ostatniego) pomiaru.
+  function aiProposePct(){
+    return runAi("pct", async () => {
+      const s = stateRef.current;
+      const current = s.pctHistory[s.pctHistory.length - 1];
+      const pytania = [];
+      PCT_AREAS.forEach(a => PCT_QUESTIONS[a.key].forEach((q, qi) => pytania.push({id: a.key + "." + qi, obszar: a.label, tresc: q})));
+      const ctx = aiProjectContext(s);
+      const payload = {
+        karta: {nazwa: ctx.nazwa, sponsor: s.project.sponsor || "", pm: s.project.pm || "",
+          okresRealizacji: s.project.okresRealizacji || "", korzysci: ctx.korzysci, etapy: ctx.etapy},
+        narzedzie: {
+          grupy: s.groups.map(g => ({nazwa: g.nazwa || "", opisZmiany: g.wplyw || "", rola: roleLabel(g.categoryId)})),
+          dzialania: s.actions.map(a => ({dzialanie: a.dzialanie || "", rola: roleLabel(a.categoryId), kamien: a.kamien || "",
+            termin: a.termin || "", odpowiedzialny: a.odpowiedzialny || ""})),
+        },
+        pytania,
+      };
+      const list = await runAiTask("pct_wstepne", payload, o => validatePctResponse(o, pytania.map(p => p.id)));
+      const items = {};
+      list.forEach(a => { if (a.ocena != null) items[a.id] = {ocena: a.ocena, uzasadnienie: a.uzasadnienie}; });
+      setAiProposals(p => ({...p, pct: {checkpointId: current.id, items}}));
+      if (!Object.keys(items).length) setToast("AI nie zaproponowało odpowiedzi — oceń pytania samodzielnie.");
+    });
+  }
+  // Przyjęcie wpisuje odpowiedź WYŁĄCZNIE tam, gdzie nadal jej brak (odpowiedź użytkownika wygrywa).
+  function aiAcceptPct(qids){
+    const prop = aiProposals.pct;
+    if (!prop) return;
+    const ids = qids || Object.keys(prop.items);
+    setState(s => ({...s, pctHistory: s.pctHistory.map(p => {
+      if (p.id !== prop.checkpointId) return p;
+      const answers = {...p.answers};
+      ids.forEach(id => {
+        const [area, qi] = id.split(".");
+        if (!prop.items[id] || !answers[area]) return;
+        if (answers[area][Number(qi)] == null){
+          answers[area] = answers[area].slice();
+          answers[area][Number(qi)] = prop.items[id].ocena;
+        }
+      });
+      return {...p, answers};
+    })}));
+    setAiProposals(p => {
+      if (!p.pct) return p;
+      const items = {...p.pct.items}; ids.forEach(id => delete items[id]);
+      return {...p, pct: {...p.pct, items}};
+    });
+  }
+  const aiAnyBusy = Object.keys(aiBusy).length > 0 || kartaAiBusySince != null;
+  // null = funkcje AI niedostępne (offline) albo wyłączone — widoki nie pokazują wtedy nic o AI.
+  const aiProps = aiOn ? {
+    busy: aiBusy, errors: aiErrors, proposals: aiProposals,
+    proposeRoles: aiProposeRoles, acceptRoles: aiAcceptRoles,
+    proposeActions: aiProposeActions, addAction: aiAddAction, dismissAction: aiDismissAction,
+    checkAdkar: aiCheckAdkar, dismissAdkarRemark: aiDismissAdkarRemark,
+    proposePct: aiProposePct, acceptPct: aiAcceptPct,
+  } : null;
 
   // SheetJS Community (biblioteka "xlsx" używana do importu) nie potrafi zapisać kolorów ani
   // fontów w plikach .xlsx — to funkcja płatnej wersji Pro. Do STYLOWANEGO eksportu używamy
@@ -1459,12 +1774,17 @@ function App(){
     adkarRollup.forEach(r => xlsDataRow(wsDiag, [r.label, r.avg!=null?r.avg.toFixed(2):"", r.min, r.atRisk.join("; "), r.suggestion], [2]));
 
     const wsPlan = wb.addWorksheet("Plan działań");
-    wsPlan.columns = [{width:40},{width:45},{width:30},{width:14},{width:22},{width:20},{width:16}];
-    xlsHeaderRow(wsPlan, ["Rola wobec zmiany","Działanie","Kamień milowy/etap","Termin","Odpowiedzialny","Dodano do harmonogramu projektu","Status"]);
+    // v2.4: znacznik `propozycjaAi` (działanie dodane z propozycji AI — do oceny pilotażu) jako
+    // OSTATNIA kolumna „Propozycja AI” (TAK/NIE). Kolumna pojawia się tylko, gdy w planie jest choć
+    // jedno takie działanie — bez nich plik wygląda dokładnie jak z v2.3.1. Import rozpoznaje ją po nagłówku.
+    const planHasAi = state.actions.some(a => a.propozycjaAi === true);
+    wsPlan.columns = [{width:40},{width:45},{width:30},{width:14},{width:22},{width:20},{width:16}].concat(planHasAi ? [{width:14}] : []);
+    xlsHeaderRow(wsPlan, ["Rola wobec zmiany","Działanie","Kamień milowy/etap","Termin","Odpowiedzialny","Dodano do harmonogramu projektu","Status"]
+      .concat(planHasAi ? ["Propozycja AI"] : []));
     state.actions.forEach(a => xlsDataRow(wsPlan, [
       CATEGORIES.find(c=>c.id===a.categoryId)?.label || "",
       a.dzialanie, a.kamien, a.termin, a.odpowiedzialny, a.dodanoDoHarmonogramu ? "TAK" : "NIE", a.status,
-    ]));
+    ].concat(planHasAi ? [a.propozycjaAi === true ? "TAK" : "NIE"] : [])));
 
     const wsPulpit = wb.addWorksheet("Pulpit");
     wsPulpit.columns = [{width:45},{width:40}];
@@ -1602,14 +1922,18 @@ function App(){
           const planHasWeryfikacja = plan[0] && plan[0].some(c => (c||"").toString().trim() === "Jak sprawdzimy gotowość");
           const dodanoIdx = planHasWeryfikacja ? 6 : 5;
           const statusIdx = planHasWeryfikacja ? 7 : 6;
+          // v2.4: kolumna „Propozycja AI” (po nagłówku; starsze pliki jej nie mają → brak znacznika).
+          const aiIdx = plan[0] ? plan[0].findIndex(c => (c||"").toString().trim() === "Propozycja AI") : -1;
           for (let i = 1; i < plan.length; i++){
             const r = plan[i];
             if (!label(r) && !r[1]) continue;
             const cat = findCategoryByLabel(label(r));
+            const fromAi = aiIdx >= 0 && (r[aiIdx]||"").toString().trim().toUpperCase() === "TAK";
             actions.push({
               id:cryptoId(), categoryId: cat ? cat.id : "", dzialanie:r[1]||"", kamien:r[2]||"", termin:r[3]||"",
               odpowiedzialny:r[4]||"", dodanoDoHarmonogramu: (r[dodanoIdx]||"").toString().trim().toUpperCase()==="TAK",
               status: STATUS_OPTIONS.includes(r[statusIdx]) ? r[statusIdx] : "Do zaplanowania",
+              ...(fromAi ? {propozycjaAi: true} : {}),
             });
           }
         }
@@ -1631,6 +1955,7 @@ function App(){
           ...s, project: {...s.project, ...project}, surveyAnswers, pctHistory, groups, adkarByCategory, actions,
           milestones, benefits, checklist12,
         }));
+        setAiProposals(EMPTY_AI_PROPOSALS);
         setToast("Wczytano plik: " + file.name);
       } catch(e){ alert("Nie udało się wczytać tego pliku — rozpoznawany jest tylko plik zapisany przyciskiem „Zapisz plik”."); }
     };
@@ -1777,6 +2102,17 @@ function App(){
         </div>
       </header>
 
+      {AI_AVAILABLE && (
+        <div className="ai-bar">
+          <label>
+            <input type="checkbox" checked={aiEnabled} disabled={aiAnyBusy}
+              onChange={e => setAiEnabled(e.target.checked)} />
+            Funkcje AI
+          </label>
+          <span className="ai-bar-note">Funkcje AI przesyłają do usługi AI (Anthropic) dane wpisane w narzędziu – np. treść karty, opisy grup, oceny – i tylko po kliknięciu przycisku AI. Serwer narzędzia nie zapisuje tych danych.</span>
+        </div>
+      )}
+
       <nav className="tabs">
         {tabsDef.map(t => (
           <button key={t.id} className={tab===t.id?"active":""} onClick={()=>setTab(t.id)}>{t.label}</button>
@@ -1795,7 +2131,7 @@ function App(){
           kartaImport={kartaImport} onUndoKarta={undoKartaImport} onDismissKarta={dismissKartaImport}
           canUndoKarta={!!kartaPreImportSnapshot}
           benefits={state.benefits}
-          useAi={useAiForKarta} setUseAi={setUseAiForKarta} aiBusySince={kartaAiBusySince}
+          aiOn={aiOn} aiBusySince={kartaAiBusySince}
           onApplyPending={applyPendingKartaItem}
         />}
         {tab==="ankieta" && <Ankieta answers={state.surveyAnswers} setAnswer={setSurveyAnswer} total={surveyTotal} level={level} goTo={setTab}/>}
@@ -1807,12 +2143,14 @@ function App(){
           hasIncompleteGroups={hasIncompleteGroups}
           addGroup={addGroup} updateGroup={updateGroup} removeGroup={removeGroup}
           setAdkar={setAdkar} categoryBarrier={categoryBarrier} adkarRollup={adkarRollup}
+          ai={aiProps}
         />}
         {tab==="plan" && canSeePlanPulpit && <PlanDzialan
           actionsByCategory={actionsByCategory} categoryBarrier={categoryBarrier}
           groups={state.groups}
           addAction={addAction} updateAction={updateAction} removeAction={removeAction}
           milestones={state.milestones}
+          ai={aiProps}
         />}
         {tab==="pulpit" && canSeePlanPulpit && <Pulpit
           project={state.project} level={level} surveyTotal={surveyTotal}
@@ -1847,12 +2185,36 @@ function App(){
 
       {toast && <div style={{position:"fixed", bottom:16, right:16, maxWidth:360, background:"var(--ink)", color:"#fff", padding:"10px 16px", borderRadius:8, fontSize:13}}>{toast}</div>}
 
-      <footer className="app">Plan Zarządzania Zmianą · Grupa Merito · wersja robocza · v2.3.1</footer>
+      <footer className="app">Plan Zarządzania Zmianą · Grupa Merito · wersja robocza · v2.4</footer>
     </React.Fragment>
   );
 }
 
 /* ---------- Widoki ---------- */
+
+// v2.4: przycisk funkcji AI ze stanem „Pracuję… N s" (przycisk zablokowany) i komunikatem błędu.
+// `busySince` = znacznik czasu startu zapytania albo undefined; `error` = powód (bez kropki) albo "".
+function AiActionButton({label, onClick, disabled, busySince, error, note}){
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    if (!busySince) return;
+    setNow(Date.now());
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [busySince]);
+  const elapsed = busySince ? Math.max(0, Math.round((now - busySince) / 1000)) : 0;
+  return (
+    <div className="ai-action">
+      <button className="small" disabled={disabled || !!busySince} onClick={onClick}>
+        {busySince ? ("Pracuję… " + elapsed + " s") : label}
+      </button>
+      {note && <div className="ai-action-note">{note}</div>}
+      {error && !busySince && (
+        <div className="ai-error" role="alert">Nie udało się ({error}). Spróbuj ponownie albo uzupełnij ręcznie.</div>
+      )}
+    </div>
+  );
+}
 
 const KARTA_FIELD_LABELS = {
   nazwa: "Nazwa projektu/programu", sponsor: "Sponsor", pm: "PM / Lider projektu",
@@ -1982,7 +2344,7 @@ function KartaAiComparePilot({compare}){
   );
 }
 
-function DaneProjektu({project, setField, kartaInputRef, onKartaFile, kartaImport, onUndoKarta, canUndoKarta, onDismissKarta, benefits, useAi, setUseAi, aiBusySince, onApplyPending}){
+function DaneProjektu({project, setField, kartaInputRef, onKartaFile, kartaImport, onUndoKarta, canUndoKarta, onDismissKarta, benefits, aiOn, aiBusySince, onApplyPending}){
   const [now, setNow] = useState(Date.now());
   useEffect(()=>{
     if (!aiBusySince) return;
@@ -1992,10 +2354,11 @@ function DaneProjektu({project, setField, kartaInputRef, onKartaFile, kartaImpor
   }, [aiBusySince]);
   const busy = !!aiBusySince;
   const elapsed = busy ? Math.max(0, Math.round((now - aiBusySince)/1000)) : 0;
-  // Wzmianki o metodzie odczytu tylko online — offline (plik z dysku) narzędzie wygląda jak w v2.2.
-  const methodLabel = AI_AVAILABLE && kartaImport && kartaImport.method
+  // Wzmianki o metodzie odczytu tylko przy włączonych funkcjach AI (online) — offline albo po
+  // wyłączeniu przełącznika „Funkcje AI” narzędzie wygląda jak w v2.2.
+  const methodLabel = aiOn && kartaImport && kartaImport.method
     ? (kartaImport.method === "ai" ? "Odczytano z pomocą AI" : "Odczytano automatycznie (bez AI)") : null;
-  const fallbackMsg = AI_AVAILABLE && kartaImport && kartaImport.fallbackReason
+  const fallbackMsg = aiOn && kartaImport && kartaImport.fallbackReason
     ? ("Nie udało się odczytać karty z pomocą AI (" + kartaImport.fallbackReason + "). Użyto odczytu standardowego.") : null;
   return (
     <React.Fragment>
@@ -2027,15 +2390,6 @@ function DaneProjektu({project, setField, kartaInputRef, onKartaFile, kartaImpor
           korzyści biznesowe, etapy i kamienie milowe oraz grupy objęte zmianą, i stosuje je od razu. Jeśli coś zaciągnie
           się źle, popraw pole ręcznie poniżej albo cofnij cały import.
         </p>
-        {AI_AVAILABLE && (
-          <div style={{margin:"0 0 12px"}}>
-            <label style={{display:"flex", alignItems:"center", gap:8, color:"var(--ink)", margin:0, cursor:"pointer"}}>
-              <input type="checkbox" checked={useAi} disabled={busy} onChange={e=>setUseAi(e.target.checked)}/>
-              Odczytaj kartę z pomocą AI
-            </label>
-            <p className="hint" style={{margin:"4px 0 0"}}>Treść karty zostanie przesłana do usługi AI (Anthropic), żeby odczytać z niej dane. Serwer narzędzia nie zapisuje treści karty.</p>
-          </div>
-        )}
         <input ref={kartaInputRef} type="file" accept=".docx" style={{display:"none"}}
           onChange={e => { if (e.target.files[0]) onKartaFile(e.target.files[0]); e.target.value=""; }} />
         <button disabled={busy} onClick={()=>kartaInputRef.current.click()}>Wybierz plik karty (.docx)</button>
@@ -2068,10 +2422,10 @@ function DaneProjektu({project, setField, kartaInputRef, onKartaFile, kartaImpor
           </div>
         )}
 
-        {kartaImport && !kartaImport.failed && kartaImport.ai && (
+        {aiOn && kartaImport && !kartaImport.failed && kartaImport.ai && (
           <KartaAiDetails ai={kartaImport.ai} onApplyPending={onApplyPending}/>
         )}
-        {kartaImport && !kartaImport.failed && kartaImport.compare && (
+        {aiOn && kartaImport && !kartaImport.failed && kartaImport.compare && (
           <KartaAiComparePilot compare={kartaImport.compare}/>
         )}
       </div>
@@ -2323,7 +2677,22 @@ function PctTriangle({scores, weakestKeys}){
   );
 }
 
-function Diagnoza({state, pctAvg, pctWeakestAreas, pctLatestScores, showPct, setPct, setPctAnswer, addPctCheckpoint, addPctAction, updatePctAction, removePctAction, hasIncompleteGroups, addGroup, updateGroup, removeGroup, setAdkar, categoryBarrier, adkarRollup}){
+function Diagnoza({state, pctAvg, pctWeakestAreas, pctLatestScores, showPct, setPct, setPctAnswer, addPctCheckpoint, addPctAction, updatePctAction, removePctAction, hasIncompleteGroups, addGroup, updateGroup, removeGroup, setAdkar, categoryBarrier, adkarRollup, ai}){
+  // v2.4 — propozycje AI (ai === null: offline albo funkcje AI wyłączone → nic o AI się nie pokazuje).
+  const roleProps = ai ? ai.proposals.roles : {};
+  // Propozycje ról pokazujemy tylko przy grupach, które nadal nie mają roli.
+  const roleAcceptIds = state.groups.filter(g => !g.categoryId && roleProps[g.id] && roleProps[g.id].rolaId).map(g => g.id);
+  const lastPct = state.pctHistory[state.pctHistory.length - 1];
+  const pctProp = ai && ai.proposals.pct && lastPct && ai.proposals.pct.checkpointId === lastPct.id ? ai.proposals.pct : null;
+  // Propozycja PCT tylko przy pytaniu bieżącego pomiaru, które nadal nie ma odpowiedzi.
+  const pctPropFor = (p, key, qi) => pctProp && p.id === pctProp.checkpointId && p.answers[key][qi] == null ? pctProp.items[key + "." + qi] : null;
+  const pctOpenIds = pctProp ? Object.keys(pctProp.items).filter(id => {
+    const [k, qi] = id.split(".");
+    return lastPct.answers[k] && lastPct.answers[k][Number(qi)] == null;
+  }) : [];
+  const adkarCheckable = CATEGORIES.some(c => state.groups.some(g => g.categoryId === c.id)
+    && ADKAR_DIMS.every(dim => { const v = (state.adkarByCategory[c.id] || {})[dim.id]; return v != null && v !== ""; }));
+  const adkarRemarks = ai && ai.proposals.adkar ? ai.proposals.adkar : null;
   const missingCategory = state.groups.filter(g => !g.categoryId).length;
   const missingWplyw = state.groups.filter(g => g.categoryId && !(g.wplyw||"").trim()).length;
   const rolesWithoutGroups = CATEGORIES.some(c => !state.groups.some(g => g.categoryId === c.id));
@@ -2363,18 +2732,47 @@ function Diagnoza({state, pctAvg, pctWeakestAreas, pctLatestScores, showPct, set
                   <Field label="Data"><input type="date" value={p.data} onChange={e=>setPct(idx,"data",e.target.value)}/></Field>
                   <Field label="Punkt kontrolny"><input type="text" value={p.punktKontrolny} onChange={e=>setPct(idx,"punktKontrolny",e.target.value)}/></Field>
                 </div>
+                {ai && isLast && (
+                  <div style={{marginBottom:14}}>
+                    <AiActionButton label="Zaproponuj odpowiedzi na podstawie karty (AI)"
+                      onClick={ai.proposePct} busySince={ai.busy.pct} error={ai.errors.pct}
+                      note="AI odpowiada tylko na pytania sprawdzalne w danych z karty i narzędzia. Pozostałe ocenisz sam."/>
+                    {pctOpenIds.length > 0 && (
+                      <div style={{marginTop:8}}>
+                        <button className="small" onClick={() => ai.acceptPct(pctOpenIds)}>Przyjmij wszystkie propozycje ({pctOpenIds.length})</button>
+                      </div>
+                    )}
+                  </div>
+                )}
                 {PCT_AREAS.map(a => (
                   <div key={a.key} style={{marginBottom:16}}>
                     <div className="flex-between" style={{marginBottom:6}}>
                       <h4 style={{margin:0}}>{a.label}</h4>
                       {rowScores[a.key]!=null && <Badge tone={pctTone(rowScores[a.key])}>{rowScores[a.key]}/30</Badge>}
                     </div>
-                    {PCT_QUESTIONS[a.key].map((q, qi) => (
-                      <div key={qi} className="flex-between" style={{marginBottom:8}}>
-                        <div style={{maxWidth:520}}>{q}</div>
-                        <Likert value={p.answers[a.key][qi]} onChange={v=>setPctAnswer(idx, a.key, qi, v)} labels={LIKERT_SCALE_LABELS}/>
-                      </div>
-                    ))}
+                    {PCT_QUESTIONS[a.key].map((q, qi) => {
+                      const prop = pctPropFor(p, a.key, qi);
+                      return (
+                        <div key={qi} style={{marginBottom:8}}>
+                          <div className="flex-between">
+                            <div style={{maxWidth:520}}>{q}</div>
+                            <Likert value={p.answers[a.key][qi]} onChange={v=>setPctAnswer(idx, a.key, qi, v)} labels={LIKERT_SCALE_LABELS}/>
+                          </div>
+                          {prop && (
+                            <div className="ai-prop">
+                              <div className="ai-prop-head">
+                                <Badge tone="ai">Propozycja AI: {prop.ocena}</Badge>
+                                <span className="muted">{LIKERT_SCALE_LABELS[prop.ocena - 1]}</span>
+                              </div>
+                              {prop.uzasadnienie && <div className="ai-prop-why">{prop.uzasadnienie}</div>}
+                              <div className="ai-prop-buttons">
+                                <button className="small" onClick={() => ai.acceptPct([a.key + "." + qi])}>Przyjmij</button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 ))}
                 {rowWeakest.length > 0 && (
@@ -2437,6 +2835,17 @@ function Diagnoza({state, pctAvg, pctWeakestAreas, pctLatestScores, showPct, set
             Dopóki oba pola nie są uzupełnione, grupa nie trafi do diagnozy ADKAR, a zakładki <strong>Plan działań</strong> i <strong>Pulpit</strong> pozostaną ukryte.
           </div>
         )}
+        {ai && missingCategory > 0 && (
+          <div style={{marginBottom:10}}>
+            <AiActionButton label="Zaproponuj role (AI)" onClick={ai.proposeRoles}
+              busySince={ai.busy.roles} error={ai.errors.roles}/>
+            {roleAcceptIds.length > 0 && (
+              <div style={{marginTop:8}}>
+                <button className="small" onClick={() => ai.acceptRoles(roleAcceptIds)}>Przyjmij wszystkie propozycje</button>
+              </div>
+            )}
+          </div>
+        )}
         <table>
           <thead><tr><th>Grupa</th><th>Co zmienia się w ich pracy?</th><th>Rola wobec zmiany</th><th></th></tr></thead>
           <tbody>
@@ -2449,6 +2858,22 @@ function Diagnoza({state, pctAvg, pctWeakestAreas, pctLatestScores, showPct, set
                     <option value="">— wybierz rolę wobec zmiany —</option>
                     {CATEGORIES.map(c => <option key={c.id} value={c.id} title={c.hint}>{c.label}</option>)}
                   </select>
+                  {!g.categoryId && roleProps[g.id] && (
+                    <div className="ai-prop">
+                      {roleProps[g.id].rolaId ? (
+                        <React.Fragment>
+                          <div className="ai-prop-head"><Badge tone="ai">Propozycja AI: {(CATEGORIES.find(c => c.id === roleProps[g.id].rolaId) || {}).label}</Badge></div>
+                          {roleProps[g.id].uzasadnienie && <div className="ai-prop-why">{roleProps[g.id].uzasadnienie}</div>}
+                          <div className="ai-prop-buttons"><button className="small" onClick={() => ai.acceptRoles([g.id])}>Przyjmij</button></div>
+                        </React.Fragment>
+                      ) : (
+                        <React.Fragment>
+                          <div className="ai-prop-head"><Badge tone="ai">Propozycja AI</Badge> AI nie potrafi określić roli – wybierz ręcznie</div>
+                          {roleProps[g.id].uzasadnienie && <div className="ai-prop-why">{roleProps[g.id].uzasadnienie}</div>}
+                        </React.Fragment>
+                      )}
+                    </div>
+                  )}
                 </td>
                 <td><button className="small" onClick={()=>removeGroup(g.id)}>Usuń</button></td>
               </tr>
@@ -2510,9 +2935,33 @@ function Diagnoza({state, pctAvg, pctWeakestAreas, pctLatestScores, showPct, set
                   )}
                 </div>
               </div>
+              {adkarRemarks && adkarRemarks.uwagi.filter(u => u.rolaId === c.id).map(u => {
+                const dim = u.wymiar ? ADKAR_DIMS.find(x => x.id === u.wymiar) : null;
+                return (
+                  <div key={u.id} className="ai-prop">
+                    <div className="ai-prop-head">
+                      <Badge tone="ai">Propozycja AI</Badge>
+                      {dim && <strong>{dim.label}</strong>}
+                    </div>
+                    <div className="ai-prop-why">{u.uwaga}</div>
+                    <div className="ai-prop-buttons"><button className="small" onClick={() => ai.dismissAdkarRemark(u.id)}>Rozumiem</button></div>
+                  </div>
+                );
+              })}
             </div>
           );
         })}
+        {ai && adkarVisibleCategories.length > 0 && (
+          <div>
+            <AiActionButton label="Sprawdź moje oceny (AI)" onClick={ai.checkAdkar}
+              disabled={!adkarCheckable} busySince={ai.busy.adkar} error={ai.errors.adkar}
+              note={"AI nie ocenia za Ciebie – wskazuje tylko miejsca, w których oceny mogą nie pasować do opisu zmiany."
+                + (adkarCheckable ? "" : " Przycisk zadziała, gdy ocenisz wszystkie pięć obszarów co najmniej jednej roli.")}/>
+            {adkarRemarks && adkarRemarks.total === 0 && (
+              <div className="ai-prop">AI nie widzi niespójności w Twoich ocenach.</div>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="card">
@@ -2533,7 +2982,7 @@ function Diagnoza({state, pctAvg, pctWeakestAreas, pctLatestScores, showPct, set
   );
 }
 
-function PlanDzialan({actionsByCategory, categoryBarrier, groups, addAction, updateAction, removeAction, milestones}){
+function PlanDzialan({actionsByCategory, categoryBarrier, groups, addAction, updateAction, removeAction, milestones, ai}){
   // Rola bez przypisanej grupy nie ma jeszcze nic do planowania — pokazywanie jej tylko myli
   // (pusta sekcja z przyciskiem "Dodaj działanie", zgłoszone na zrzucie ekranu).
   const visibleCategories = CATEGORIES.filter(c => groups.some(g => g.categoryId === c.id));
@@ -2572,6 +3021,27 @@ function PlanDzialan({actionsByCategory, categoryBarrier, groups, addAction, upd
                 ))}
                 <a className="ex-link" href={ADKAR_KAFETERIA_URL} target="_blank" rel="noopener noreferrer">Potrzebujesz więcej pomysłów? Zajrzyj do kafeterii działań (ADKAR, PCT)</a>
                 <span className="ex-note">— dokument otwiera się w SharePoincie Grupy Merito i wymaga zalogowania na konto firmowe; to osobna strona, nie część tego narzędzia (które działa offline, z dysku).</span>
+                {ai && (
+                  <AiActionButton label="Zaproponuj działania dla tego projektu (AI)" onClick={() => ai.proposeActions(c.id)}
+                    busySince={ai.busy["actions:" + c.id]} error={ai.errors["actions:" + c.id]}/>
+                )}
+                {ai && (ai.proposals.actions[c.id] || []).map(p => {
+                  const dim = ADKAR_DIMS.find(x => x.id === p.bariera);
+                  return (
+                    <div key={p.id} className="ai-prop">
+                      <div className="ai-prop-head">
+                        <Badge tone="ai">Propozycja AI</Badge>
+                        <span className="muted">bariera: {dim ? dim.label : p.bariera}{p.kamien ? " · powiązane z: " + p.kamien : ""}</span>
+                      </div>
+                      <div style={{marginTop:4, fontWeight:600, color:"var(--ink)"}}>{p.dzialanie}</div>
+                      {p.uzasadnienie && <div className="ai-prop-why">{p.uzasadnienie}</div>}
+                      <div className="ai-prop-buttons">
+                        <button className="small" onClick={() => ai.addAction(c.id, p.id)}>Dodaj do planu</button>
+                        <button className="small" onClick={() => ai.dismissAction(c.id, p.id)}>Odrzuć</button>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             )}
             {overSoftLimit && <p className="hint">Więcej niż 3 działania — rozważ, czy da się je połączyć lub rozbić na etapy w ramach istniejących wierszy, zamiast dodawać kolejne.</p>}
@@ -2579,7 +3049,7 @@ function PlanDzialan({actionsByCategory, categoryBarrier, groups, addAction, upd
             {actions.map(a => (
               <div key={a.id} className="action-row">
                 <div className="top">
-                  <span className="muted">Działanie</span>
+                  <span className="muted">Działanie{ai && a.propozycjaAi && <React.Fragment>{" "}<Badge tone="ai">dodane z propozycji AI</Badge></React.Fragment>}</span>
                   <button className="small" onClick={()=>removeAction(a.id)}>Usuń</button>
                 </div>
                 <Field label="Działanie"><textarea value={a.dzialanie} onChange={e=>updateAction(a.id,"dzialanie",e.target.value)} placeholder="Co konkretnie zrobimy?"/></Field>
